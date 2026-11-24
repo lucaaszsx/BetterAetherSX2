@@ -65,7 +65,8 @@ private fun biosImportMessage(result: BiosImportResult): String =
     when (result) {
         is BiosImportResult.Recognized -> {
             val recognized = stringResource(R.string.bios_recognized, result.identity.region, result.identity.version)
-            if (result.knownDumpName != null) recognized else "$recognized ${stringResource(R.string.bios_unknown_dump)}"
+            val unknownDump = stringResource(R.string.bios_unknown_dump)
+            if (result.knownDumpName != null) recognized else "$recognized $unknownDump"
         }
         BiosImportResult.NotABios -> stringResource(R.string.bios_not_recognized)
         is BiosImportResult.ReadFailed -> stringResource(R.string.bios_read_failed)

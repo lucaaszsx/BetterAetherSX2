@@ -109,5 +109,13 @@ dependencies {
     implementation(libs.activity.compose)
     implementation(libs.core.ktx)
     implementation(libs.coroutines.android)
+    // SDL's native library registers its Java classes when it loads, so they must be in the APK even though the
+    // app never starts SDLActivity. The jar is built from source with the other dependencies.
+    implementation(
+        fileTree(depsDir.resolve("share/java/SDL3")) {
+            include("SDL3-*.jar")
+            exclude("*-sources.jar", "*-javadoc.jar")
+        },
+    )
     testImplementation(libs.junit)
 }

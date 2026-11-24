@@ -15,19 +15,20 @@ How to work in this repository, for humans and agents.
 | `core/` | Our native C++ code. Builds and tests on a Linux host. |
 | `upstream/pcsx2/` | PCSX2 submodule, pinned to a release. Never edit it in place. |
 | `upstream/patches/` | Our changes to PCSX2 as patch files, applied by `upstream/apply-patches.sh`. Keep them few and small. |
-| `android/` | Android build scripts; the Kotlin/Compose app and JNI glue join here. |
+| `android/` | Gradle project (`app/`: Kotlin/Compose UI), plus scripts that build PCSX2 and its libraries with the NDK. |
 
 `android/` depends on `core/` and `upstream/`; `core/` depends on `upstream/`; nothing depends on `android/`.
 
 - Runs per frame (CPU emulation, JIT, GS, SPU2, input during play): native code in `core/` or upstream.
 - Calls into Android APIs from native code (ADPF, Thermal, audio, `ANativeWindow`): the JNI glue in `android/`.
-- Menus, settings, library: Kotlin with Compose in `android/`.
+- Menus, settings, library: Kotlin with Compose in `android/`. The UI reaches the emulator only through `EmulatorRuntime`; `FakeRuntime` stands in for the core in UI work and tests.
 
 ## Commands
 
 ```sh
 cmake -S core -B build/core -G Ninja && cmake --build build/core && ctest --test-dir build/core
 clang-format --dry-run --Werror $(git ls-files 'core/*.cpp' 'core/*.h')
+cd android && ./gradlew ktlintCheck detekt testDebugUnitTest assembleDebug
 ```
 
 Keep the local loop fast. Heavy suites (full differential runs, fuzzing, sanitizers, GS golden tests) run in CI; device tests and benchmarks run on real devices.

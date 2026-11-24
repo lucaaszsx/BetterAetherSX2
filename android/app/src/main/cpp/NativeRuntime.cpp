@@ -12,7 +12,9 @@
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_io_github_lucaaszsx_betteraethersx2_runtime_NativeRuntime_nativeCoreVersion(JNIEnv* env, jclass) {
-    const std::string version = std::string(bax::coreVersion()) + " (PCSX2 " + BuildVersion::GitTag + ")";
+    // A shallow checkout of the submodule has no tags, so the commit hash stands in for the release name.
+    const std::string upstream = *BuildVersion::GitTag ? BuildVersion::GitTag : BuildVersion::GitHash;
+    const std::string version = std::string(bax::coreVersion()) + " (PCSX2 " + upstream + ")";
     return env->NewStringUTF(version.c_str());
 }
 

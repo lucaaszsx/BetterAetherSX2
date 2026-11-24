@@ -1,5 +1,5 @@
-# Fast checks on every push and pull request. The Android build, ktlint, detekt and the no-INTERNET manifest step join
-# with the Android app; sanitizers, fuzzing and differential runs join with the code they test.
+# Checks on every push to main and every pull request. The APK build, ktlint, detekt and the no-INTERNET manifest step
+# join with the Android app; sanitizers, fuzzing and differential runs join with the code they test.
 name: CI
 
 on:
@@ -38,3 +38,39 @@ jobs:
                 run: cmake --build build/core
             -   name: Test
                 run: ctest --test-dir build/core --output-on-failure
+
+    android-core:
+        name: PCSX2 core for Android arm64-v8a
+        runs-on: ubuntu-24.04
+        env:
+            NDK_VERSION: 30.0.16248370
+            DEPS_PREFIX: ${{ github.workspace }}/build/android-deps
+        steps:
+            -   uses: actions/checkout@v4
+                with:
+                    submodules: true
+            -   name: Install toolchain
+                run: |
+                    sudo apt-get update && sudo apt-get install --yes ninja-build
+                    yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "ndk;$NDK_VERSION" > /dev/null
+                    echo "ANDROID_NDK=$ANDROID_SDK_ROOT/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+            -   name: Restore dependencies
+                id: deps-cache
+                uses: actions/cache@v4
+                with:
+                    path: build/android-deps
+                    key: android-deps-${{ env.NDK_VERSION }}-${{ hashFiles('android/deps/build-deps.sh') }}
+            -   name: Build dependencies
+                if: steps.deps-cache.outputs.cache-hit != 'true'
+                working-directory: build
+                run: ../android/deps/build-deps.sh "$ANDROID_NDK" "$DEPS_PREFIX"
+            -   name: Upload dependencies
+                uses: actions/upload-artifact@v4
+                with:
+                    name: android-deps
+                    path: build/android-deps
+                    retention-days: 7
+            -   name: Configure
+                run: android/configure-core.sh "$ANDROID_NDK" "$DEPS_PREFIX" build/android-core
+            -   name: Build
+                run: cmake --build build/android-core --target common PCSX2

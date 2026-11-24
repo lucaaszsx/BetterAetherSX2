@@ -13,8 +13,9 @@ How to work in this repository, for humans and agents.
 | Path | Contents |
 | --- | --- |
 | `core/` | Our native C++ code. Builds and tests on a Linux host. |
-| `upstream/pcsx2/` | Vendored PCSX2 plus small isolated patches (added when PCSX2 is vendored). |
-| `android/` | Kotlin/Compose app and JNI glue (added with the Android app). |
+| `upstream/pcsx2/` | PCSX2 submodule, pinned to a release. Never edit it in place. |
+| `upstream/patches/` | Our changes to PCSX2 as patch files, applied by `upstream/apply-patches.sh`. Keep them few and small. |
+| `android/` | Android build scripts; the Kotlin/Compose app and JNI glue join here. |
 | `docs/` | Architecture, ADRs, design guides, open questions. |
 
 Details: [docs/architecture.md](docs/architecture.md).

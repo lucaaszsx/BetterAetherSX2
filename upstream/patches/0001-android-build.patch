@@ -1,0 +1,169 @@
+diff --git a/cmake/BuildParameters.cmake b/cmake/BuildParameters.cmake
+index 80c4469..1569165 100644
+--- a/cmake/BuildParameters.cmake
++++ b/cmake/BuildParameters.cmake
+@@ -26,7 +26,7 @@ option(USE_VULKAN "Enable Vulkan GS renderer" ON)
+ #-------------------------------------------------------------------------------
+ # Path and lib option
+ #-------------------------------------------------------------------------------
+-if(UNIX AND NOT APPLE)
++if(UNIX AND NOT APPLE AND NOT ANDROID)
+ 	option(ENABLE_SETCAP "Enable networking capability for DEV9" OFF)
+ 	option(X11_API "Enable X11 support" ON)
+ 	option(WAYLAND_API "Enable Wayland support" ON)
+@@ -78,8 +78,8 @@ mark_as_advanced(CMAKE_C_FLAGS_DEVEL CMAKE_CXX_FLAGS_DEVEL CMAKE_LINKER_FLAGS_DE
+ #-------------------------------------------------------------------------------
+ # Select the architecture
+ #-------------------------------------------------------------------------------
+-if("${CMAKE_HOST_SYSTEM_PROCESSOR}" STREQUAL "x86_64" OR "${CMAKE_HOST_SYSTEM_PROCESSOR}" STREQUAL "amd64" OR
+-   "${CMAKE_HOST_SYSTEM_PROCESSOR}" STREQUAL "AMD64" OR "${CMAKE_OSX_ARCHITECTURES}" STREQUAL "x86_64")
++if(NOT ANDROID AND ("${CMAKE_HOST_SYSTEM_PROCESSOR}" STREQUAL "x86_64" OR "${CMAKE_HOST_SYSTEM_PROCESSOR}" STREQUAL "amd64" OR
++   "${CMAKE_HOST_SYSTEM_PROCESSOR}" STREQUAL "AMD64" OR "${CMAKE_OSX_ARCHITECTURES}" STREQUAL "x86_64"))
+ 	# Multi-ISA only exists on x86.
+ 	option(DISABLE_ADVANCE_SIMD "Disable advance use of SIMD (SSE2+ & AVX)" OFF)
+ 
+@@ -111,7 +111,7 @@ if("${CMAKE_HOST_SYSTEM_PROCESSOR}" STREQUAL "x86_64" OR "${CMAKE_HOST_SYSTEM_PR
+ 		endif()
+ 	endif()
+ elseif("${CMAKE_HOST_SYSTEM_PROCESSOR}" STREQUAL "arm64" OR "${CMAKE_HOST_SYSTEM_PROCESSOR}" STREQUAL "aarch64" OR
+-       "${CMAKE_OSX_ARCHITECTURES}" STREQUAL "arm64")
++       "${CMAKE_OSX_ARCHITECTURES}" STREQUAL "arm64" OR (ANDROID AND "${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "aarch64"))
+ 	message(STATUS "Building for Apple Silicon (ARM64).")
+ 	set(ARCH_ARM64 TRUE)
+ 	if(APPLE)
+diff --git a/cmake/Pcsx2Utils.cmake b/cmake/Pcsx2Utils.cmake
+index 4213579..358f19c 100644
+--- a/cmake/Pcsx2Utils.cmake
++++ b/cmake/Pcsx2Utils.cmake
+@@ -13,6 +13,8 @@ function(detect_operating_system)
+ 		message(STATUS "Building for Windows.")
+ 	elseif(APPLE AND NOT IOS)
+ 		message(STATUS "Building for MacOS.")
++	elseif(ANDROID)
++		message(STATUS "Building for Android.")
+ 	elseif(LINUX)
+ 		message(STATUS "Building for Linux.")
+ 	elseif(BSD)
+diff --git a/cmake/SearchForStuff.cmake b/cmake/SearchForStuff.cmake
+index f3b71b7..ec92302 100644
+--- a/cmake/SearchForStuff.cmake
++++ b/cmake/SearchForStuff.cmake
+@@ -38,8 +38,10 @@ if (WIN32)
+ 	set(FFMPEG_INCLUDE_DIRS "${CMAKE_SOURCE_DIR}/3rdparty/ffmpeg/include")
+ 	find_package(Vtune)
+ else()
+-	find_package(CURL REQUIRED)
+-	find_package(PCAP REQUIRED)
++	if(NOT ANDROID)
++		find_package(CURL REQUIRED)
++		find_package(PCAP REQUIRED)
++	endif()
+ 	find_package(Vtune)
+ 
+ 	# Use bundled ffmpeg v4.x.x headers if we can't locate it in the system.
+@@ -53,7 +55,7 @@ else()
+ 	## Use CheckLib package to find module
+ 	include(CheckLib)
+ 
+-	if(UNIX AND NOT APPLE)
++	if(UNIX AND NOT APPLE AND NOT ANDROID)
+ 		find_package(Fontconfig REQUIRED)
+ 		if(LINUX)
+ 			check_lib(LIBUDEV libudev libudev.h)
+diff --git a/common/CMakeLists.txt b/common/CMakeLists.txt
+index d1bad44..49cdb63 100644
+--- a/common/CMakeLists.txt
++++ b/common/CMakeLists.txt
+@@ -157,6 +157,12 @@ elseif(APPLE)
+ 		"-framework Foundation"
+ 		"-framework IOKit"
+ 	)
++elseif(ANDROID)
++	# The Android app provides the rest of the host layer (LnxMisc.cpp needs D-Bus and X11).
++	target_sources(common PRIVATE
++		Linux/LnxHostSys.cpp
++		Linux/LnxThreads.cpp
++	)
+ else()
+ 	target_sources(common PRIVATE
+ 		Linux/LnxHostSys.cpp
+@@ -189,7 +195,7 @@ if (USE_GCC AND CMAKE_INTERPROCEDURAL_OPTIMIZATION)
+ 	set_source_files_properties(FastJmp.cpp PROPERTIES COMPILE_FLAGS -fno-lto)
+ endif()
+ 
+-if(NOT WIN32)
++if(NOT WIN32 AND NOT ANDROID)
+ 	# libcurl-based HTTPDownloader
+ 	target_sources(common PRIVATE
+ 		HTTPDownloaderCurl.cpp
+diff --git a/pcsx2/CMakeLists.txt b/pcsx2/CMakeLists.txt
+index 4652ff9..76d765d 100644
+--- a/pcsx2/CMakeLists.txt
++++ b/pcsx2/CMakeLists.txt
+@@ -365,6 +365,12 @@ set(pcsx2DEV9Headers
+ 	DEV9/ThreadSafeMap.h
+ 	)
+ 
++# Android has no libpcap and no network access.
++if(ANDROID)
++	list(REMOVE_ITEM pcsx2DEV9Sources DEV9/pcap_io.cpp)
++	list(REMOVE_ITEM pcsx2DEV9Headers DEV9/pcap_io.h)
++endif()
++
+ # USB sources
+ set(pcsx2USBSources
+ 	USB/USB.cpp
+@@ -1196,7 +1202,7 @@ if(WIN32)
+ 		dwmapi.lib
+ 		OneCore.lib
+ 	)
+-else()
++elseif(NOT ANDROID)
+ 	target_link_libraries(PCSX2_FLAGS INTERFACE
+ 		PCAP::PCAP
+ 	)
+diff --git a/pcsx2/DEV9/net.cpp b/pcsx2/DEV9/net.cpp
+index ba1b418..6dc35f1 100644
+--- a/pcsx2/DEV9/net.cpp
++++ b/pcsx2/DEV9/net.cpp
+@@ -13,7 +13,9 @@
+ #ifdef _WIN32
+ #include "Win32/tap.h"
+ #endif
++#ifndef __ANDROID__
+ #include "pcap_io.h"
++#endif
+ #include "sockets.h"
+ 
+ #include "PacketReader/EthernetFrame.h"
+@@ -71,6 +73,8 @@ NetAdapter* GetNetAdapter()
+ 			na = static_cast<NetAdapter*>(new TAPAdapter());
+ 			break;
+ #endif
++#ifndef __ANDROID__
++		// The Android build has no network access, so no adapter can be created there.
+ 		case Pcsx2Config::DEV9Options::NetApi::PCAP_Bridged:
+ 		case Pcsx2Config::DEV9Options::NetApi::PCAP_Switched:
+ 			na = static_cast<NetAdapter*>(new PCAPAdapter());
+@@ -78,6 +82,7 @@ NetAdapter* GetNetAdapter()
+ 		case Pcsx2Config::DEV9Options::NetApi::Sockets:
+ 			na = static_cast<NetAdapter*>(new SocketAdapter());
+ 			break;
++#endif
+ 		default:
+ 			return 0;
+ 	}
+diff --git a/pcsx2/DEV9/smap.cpp b/pcsx2/DEV9/smap.cpp
+index 346cc8c..9eb9020 100644
+--- a/pcsx2/DEV9/smap.cpp
++++ b/pcsx2/DEV9/smap.cpp
+@@ -14,7 +14,9 @@
+ 
+ #include "smap.h"
+ #include "net.h"
++#ifndef __ANDROID__
+ #include "pcap_io.h"
++#endif
+ 
+ bool has_link = true;
+ volatile bool fireIntR = false;

@@ -13,6 +13,8 @@ android/**/build/
 *.apk
 *.aab
 *.keystore
+# The debug key is public on purpose, so every build installs over the last one. Release keys never live here.
+!android/app/debug.keystore
 *.jks
 
 # Editors

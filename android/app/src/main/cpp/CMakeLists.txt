@@ -9,6 +9,7 @@ add_subdirectory("${BAX_REPO_ROOT}/core" "${CMAKE_BINARY_DIR}/bax-core")
 add_library(bax SHARED
     AndroidHost.cpp
     NativeRuntime.cpp
+    Session.cpp
 )
 
 target_include_directories(bax PRIVATE

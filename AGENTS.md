@@ -5,8 +5,8 @@ How to work in this repository, for humans and agents.
 ## Basics
 
 - Everything (docs, code, comments, commits, PRs) is in English. The app UI ships in English and Brazilian Portuguese.
-- Decisions that cross areas (module boundaries, data formats, persistence) get a short ADR in `docs/adr/`. Local decisions do not.
-- When something is ambiguous, add a row to `docs/open-questions.md` with the default you followed, and mention it in the PR.
+- Decisions that cross areas (module boundaries, data formats, persistence) are explained in the PR that makes them.
+- When something is ambiguous, follow the simplest reasonable default and say which one in the PR.
 
 ## Repository map
 
@@ -16,9 +16,12 @@ How to work in this repository, for humans and agents.
 | `upstream/pcsx2/` | PCSX2 submodule, pinned to a release. Never edit it in place. |
 | `upstream/patches/` | Our changes to PCSX2 as patch files, applied by `upstream/apply-patches.sh`. Keep them few and small. |
 | `android/` | Android build scripts; the Kotlin/Compose app and JNI glue join here. |
-| `docs/` | Architecture, ADRs, design guides, open questions. |
 
-Details: [docs/architecture.md](docs/architecture.md).
+`android/` depends on `core/` and `upstream/`; `core/` depends on `upstream/`; nothing depends on `android/`.
+
+- Runs per frame (CPU emulation, JIT, GS, SPU2, input during play): native code in `core/` or upstream.
+- Calls into Android APIs from native code (ADPF, Thermal, audio, `ANativeWindow`): the JNI glue in `android/`.
+- Menus, settings, library: Kotlin with Compose in `android/`.
 
 ## Commands
 
@@ -45,7 +48,7 @@ Keep the local loop fast. Heavy suites (full differential runs, fuzzing, sanitiz
 - Copy says what the thing does or what happened, in plain, short words. Buttons are a verb plus an object. Errors say what happened, why, and what to do next. Progress shows real numbers.
 - Avoid filler and marketing voice: exclamation marks, cheering, greetings, emoji, words like "seamless" or "unleash" used for effect.
 - No sparkle or "magic" motifs, purple-pink gradients, gradient text, neon glows, blob backgrounds, stock people or robots, or untouched stock Material components.
-- Guide: [docs/design/copy.md](docs/design/copy.md).
+- Example: write "Couldn't read this BIOS file. PS2 BIOS dumps are 4 MB and this file is 3 MB. Choose a different file.", not "Oops! Something went wrong."
 
 ## Workflow
 
@@ -53,7 +56,7 @@ Keep the local loop fast. Heavy suites (full differential runs, fuzzing, sanitiz
 2. Keep PRs small: at most 400 changed lines, not counting generated or vendored code.
 3. Tests come with the code. Run the formatter and the fast local suite.
 4. Someone other than the author reviews. Merge only with green CI.
-5. Update the affected docs in the same PR.
+5. Update `AGENTS.md` and `README.md` in the same PR when the change affects them.
 
 Conventional Commits. `main` is protected. Branches: `feat/...`, `fix/...`.
 

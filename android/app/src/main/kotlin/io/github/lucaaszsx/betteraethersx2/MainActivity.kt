@@ -15,6 +15,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import io.github.lucaaszsx.betteraethersx2.bios.BiosImportResult
 import io.github.lucaaszsx.betteraethersx2.bios.BiosImporter
+import io.github.lucaaszsx.betteraethersx2.bios.KnownBiosDumps
 import io.github.lucaaszsx.betteraethersx2.runtime.EmulatorRuntime
 import io.github.lucaaszsx.betteraethersx2.runtime.NativeRuntime
 import io.github.lucaaszsx.betteraethersx2.ui.BetterTheme
@@ -27,7 +28,10 @@ import java.io.IOException
 
 class MainActivity : ComponentActivity() {
     private val runtime: EmulatorRuntime by lazy { NativeRuntime() }
-    private val biosImporter by lazy { BiosImporter(filesDir.resolve("bios"), runtime) }
+    private val biosImporter by lazy {
+        val knownDumps = assets.open("known-bios.txt").use(KnownBiosDumps::parse)
+        BiosImporter(filesDir.resolve("bios"), runtime, knownDumps)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

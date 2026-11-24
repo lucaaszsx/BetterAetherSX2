@@ -17,22 +17,36 @@ class BiosImporterTest {
 
     private val contents = ByteArray(16) { it.toByte() }
 
+    // SHA-1 of `contents`, so the test file counts as a known dump.
+    private val contentsSha1 = "56178b86a57fac22899a9964185c2cc96e7da589"
+    private val knownDumps = KnownBiosDumps(mapOf(contentsSha1 to "Test dump"))
+
     @Test
     fun keepsARecognizedBiosInTheBiosFolder() {
         val identity = BiosIdentity(region = "Europe", version = "2.00")
         val biosDirectory = folder.root.resolve("bios")
-        val importer = BiosImporter(biosDirectory, FakeRuntime(bios = identity))
+        val importer = BiosImporter(biosDirectory, FakeRuntime(bios = identity), knownDumps)
 
         val result = importer.import(contents.inputStream(), "scph-70004.bin")
 
-        assertEquals(BiosImportResult.Recognized(identity), result)
+        assertEquals(BiosImportResult.Recognized(identity, knownDumpName = "Test dump"), result)
         assertTrue(biosDirectory.resolve("scph-70004.bin").readBytes().contentEquals(contents))
+    }
+
+    @Test
+    fun acceptsABiosThatIsNotAKnownDumpButSaysSo() {
+        val identity = BiosIdentity(region = "Japan", version = "1.00")
+        val importer = BiosImporter(folder.root, FakeRuntime(bios = identity), KnownBiosDumps(emptyMap()))
+
+        val result = importer.import(contents.inputStream(), "modified.bin")
+
+        assertEquals(BiosImportResult.Recognized(identity, knownDumpName = null), result)
     }
 
     @Test
     fun deletesAFileTheCoreDoesNotRecognize() {
         val biosDirectory = folder.root.resolve("bios")
-        val importer = BiosImporter(biosDirectory, FakeRuntime(bios = null))
+        val importer = BiosImporter(biosDirectory, FakeRuntime(bios = null), knownDumps)
 
         val result = importer.import(contents.inputStream(), "notes.txt")
 
@@ -43,7 +57,7 @@ class BiosImporterTest {
     @Test
     fun reportsAReadErrorAndLeavesNoPartialFile() {
         val biosDirectory = folder.root.resolve("bios")
-        val importer = BiosImporter(biosDirectory, FakeRuntime())
+        val importer = BiosImporter(biosDirectory, FakeRuntime(), knownDumps)
         val failing =
             object : InputStream() {
                 override fun read(): Int = throw IOException("The file was removed while copying.")
@@ -58,7 +72,7 @@ class BiosImporterTest {
     @Test
     fun ignoresDirectoriesInThePickedFileName() {
         val biosDirectory = folder.root.resolve("bios")
-        val importer = BiosImporter(biosDirectory, FakeRuntime())
+        val importer = BiosImporter(biosDirectory, FakeRuntime(), knownDumps)
 
         importer.import(contents.inputStream(), "../../escape.bin")
 

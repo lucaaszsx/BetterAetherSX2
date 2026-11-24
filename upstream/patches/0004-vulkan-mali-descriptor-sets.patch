@@ -189,10 +189,22 @@ index e3bc17b..3562d26 100644
  
  
 diff --git a/pcsx2/GS/Renderers/Vulkan/GSDeviceVK.h b/pcsx2/GS/Renderers/Vulkan/GSDeviceVK.h
-index c245f34..b22a2a1 100644
+index c245f34..7aefbf8 100644
 --- a/pcsx2/GS/Renderers/Vulkan/GSDeviceVK.h
 +++ b/pcsx2/GS/Renderers/Vulkan/GSDeviceVK.h
-@@ -223,6 +223,8 @@ private:
+@@ -25,6 +25,11 @@
+ 
+ class VKSwapChain;
+ 
++namespace Vulkan
++{
++	class DescriptorSetUpdateBuilder;
++}
++
+ class GSDeviceVK final : public GSDevice
+ {
+ public:
+@@ -223,6 +228,8 @@ private:
  		VkCommandPool command_pool = VK_NULL_HANDLE;
  		std::array<VkCommandBuffer, 2> command_buffers{VK_NULL_HANDLE, VK_NULL_HANDLE};
  		VkFence fence = VK_NULL_HANDLE;
@@ -201,7 +213,7 @@ index c245f34..b22a2a1 100644
  		u64 fence_counter = 0;
  		s32 spin_id = -1;
  		u32 submit_timestamp = 0;
-@@ -296,6 +298,10 @@ private:
+@@ -296,6 +303,10 @@ private:
  	u64 m_completed_fence_counter = 0;
  	u32 m_current_frame = 0;
  
@@ -212,7 +224,7 @@ index c245f34..b22a2a1 100644
  	bool m_last_submit_failed = false;
  
  	std::map<u32, VkRenderPass> m_render_pass_cache;
-@@ -669,6 +675,9 @@ public:
+@@ -669,6 +680,9 @@ public:
  	/// Binds all dirty state to the command buffer.
  	bool ApplyUtilityState(bool already_execed = false);
  	bool ApplyTFXState(bool already_execed = false);

@@ -1,0 +1,6 @@
+[submodule "upstream/pcsx2"]
+    path = upstream/pcsx2
+    url = https://github.com/PCSX2/pcsx2.git
+    shallow = true
+    # Our patches are applied at build time, so a patched checkout is the normal state.
+    ignore = dirty

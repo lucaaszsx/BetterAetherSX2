@@ -29,6 +29,15 @@ cmake --build build/core
 ctest --test-dir build/core
 ```
 
+PCSX2 core for Android (needs the NDK r30; the dependency build is long, CI runs it):
+
+```sh
+git submodule update --init
+android/deps/build-deps.sh <ndk-dir> build/android-deps
+android/configure-core.sh <ndk-dir> build/android-deps build/android-core
+cmake --build build/android-core --target common PCSX2
+```
+
 The Android app is not in the repository yet.
 
 ## Contributing

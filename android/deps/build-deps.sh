@@ -161,6 +161,9 @@ mv "shaderc-$SHADERC/third_party/SPIRV-Headers-$SHADERC_SPIRVHEADERS" "shaderc-$
 tar xf "shaderc-spirv-tools-$SHADERC_SPIRVTOOLS.tar.gz" -C "shaderc-$SHADERC/third_party"
 mv "shaderc-$SHADERC/third_party/SPIRV-Tools-$SHADERC_SPIRVTOOLS" "shaderc-$SHADERC/third_party/spirv-tools"
 patch -d "shaderc-$SHADERC" -p1 < "$UPSTREAM/.github/workflows/scripts/common/shaderc-changes.patch"
-cmake_install "shaderc-$SHADERC" -DSHADERC_SKIP_TESTS=ON -DSHADERC_SKIP_EXAMPLES=ON -DSHADERC_SKIP_COPYRIGHT_CHECK=ON
+# glslang and SPIRV-Tools build static into libshaderc_shared.so, as in upstream's build; as shared libraries
+# they would not be installed, and the core could not load shaderc.
+cmake_install "shaderc-$SHADERC" -DSHADERC_SKIP_TESTS=ON -DSHADERC_SKIP_EXAMPLES=ON -DSHADERC_SKIP_COPYRIGHT_CHECK=ON \
+    -DBUILD_SHARED_LIBS=OFF
 
 echo "Dependencies installed in $PREFIX"

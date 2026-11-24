@@ -20,6 +20,7 @@
 #include <android/log.h>
 #include <android/native_window_jni.h>
 #include <atomic>
+#include <condition_variable>
 #include <deque>
 #include <functional>
 #include <future>
@@ -27,6 +28,7 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <utility>
 
 namespace {
 
@@ -38,12 +40,18 @@ std::vector<u8> s_font_data;
 std::mutex s_window_mutex;
 WindowInfo s_window;
 
+// The core expects one CPU thread for the life of the process, as on desktop: it initializes once and runs one VM
+// after another. Everything below is guarded by s_cpu_mutex.
 std::thread s_cpu_thread;
 std::atomic<std::thread::id> s_cpu_thread_id;
-
-// Work other threads ask the CPU thread to run, drained once per frame in PumpMessagesOnCPUThread.
-std::mutex s_cpu_queue_mutex;
+std::mutex s_cpu_mutex;
+std::condition_variable s_cpu_wakeup;
+// Work other threads ask the CPU thread to run, drained once per frame and whenever the thread is idle.
 std::deque<std::function<void()>> s_cpu_queue;
+bool s_boot_requested = false;
+bool s_stop_requested = false;
+bool s_vm_active = false;
+std::condition_variable s_vm_finished;
 
 int androidLogPriority(LOGLEVEL level) {
     switch (level) {
@@ -121,24 +129,44 @@ bool initialize(const std::string& data_dir, const std::string& resources_dir) {
 }
 
 // Boots with no disc, which runs the BIOS to its menu, and runs the VM until something stops it.
+void runVm() {
+    VMManager::ApplySettings();
+    VMBootParameters params;
+    params.source_type = CDVD_SourceType::NoDisc;
+    if (VMManager::Initialize(params) != VMBootResult::StartupSuccess) {
+        __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, "The VM failed to start");
+        return;
+    }
+    {
+        std::lock_guard lock(s_cpu_mutex);
+        if (!s_stop_requested) VMManager::SetState(VMState::Running);
+    }
+    while (VMManager::GetState() == VMState::Running) VMManager::Execute();
+    VMManager::Shutdown(false);
+}
+
 void cpuThreadMain() {
     s_cpu_thread_id = std::this_thread::get_id();
-    if (VMManager::Internal::CPUThreadInitialize()) {
-        VMManager::ApplySettings();
-        VMBootParameters params;
-        params.source_type = CDVD_SourceType::NoDisc;
-        if (VMManager::Initialize(params) == VMBootResult::StartupSuccess) {
-            VMManager::SetState(VMState::Running);
-            while (VMManager::GetState() == VMState::Running) VMManager::Execute();
-            VMManager::Shutdown(false);
-        } else {
-            __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, "The VM failed to start");
-        }
+    if (!VMManager::Internal::CPUThreadInitialize()) {
+        __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, "The CPU thread failed to initialize");
+        return;
     }
-    VMManager::Internal::CPUThreadShutdown();
-    // Run what arrived during shutdown, so no blocking caller waits forever.
-    Host::PumpMessagesOnCPUThread();
-    s_cpu_thread_id = std::thread::id();
+    for (;;) {
+        bool boot = false;
+        {
+            std::unique_lock lock(s_cpu_mutex);
+            s_cpu_wakeup.wait(lock, [] { return s_boot_requested || !s_cpu_queue.empty(); });
+            boot = std::exchange(s_boot_requested, false);
+        }
+        Host::PumpMessagesOnCPUThread();
+        if (!boot) continue;
+        runVm();
+        // Run what arrived during shutdown, so no blocking caller waits forever.
+        Host::PumpMessagesOnCPUThread();
+        std::lock_guard lock(s_cpu_mutex);
+        s_vm_active = false;
+        s_vm_finished.notify_all();
+    }
 }
 
 void setWindow(ANativeWindow* window) {
@@ -152,10 +180,29 @@ void setWindow(ANativeWindow* window) {
     s_window.surface_height = static_cast<u32>(ANativeWindow_getHeight(window));
 }
 
+// Takes ownership of the window. A second start while a VM runs is ignored, so the VM never loses its window.
+void startSession(ANativeWindow* window) {
+    std::lock_guard lock(s_cpu_mutex);
+    if (s_vm_active) {
+        ANativeWindow_release(window);
+        return;
+    }
+    setWindow(window);
+    s_vm_active = true;
+    s_boot_requested = true;
+    s_stop_requested = false;
+    if (!s_cpu_thread.joinable()) s_cpu_thread = std::thread(cpuThreadMain);
+    s_cpu_wakeup.notify_one();
+}
+
+// Returns once the VM has shut down, so the caller may release the window afterwards.
 void stopSession() {
-    if (!s_cpu_thread.joinable()) return;
-    VMManager::SetState(VMState::Stopping);
-    s_cpu_thread.join();
+    std::unique_lock lock(s_cpu_mutex);
+    if (!s_vm_active) return;
+    s_stop_requested = true;
+    if (VMManager::GetState() == VMState::Running || VMManager::GetState() == VMState::Paused)
+        VMManager::SetState(VMState::Stopping);
+    s_vm_finished.wait(lock, [] { return !s_vm_active; });
 }
 
 } // namespace
@@ -180,18 +227,20 @@ void Host::RunOnCPUThread(std::function<void()> function, bool block) {
         return;
     }
     if (!block) {
-        std::lock_guard lock(s_cpu_queue_mutex);
+        std::lock_guard lock(s_cpu_mutex);
         s_cpu_queue.push_back(std::move(function));
+        s_cpu_wakeup.notify_one();
         return;
     }
     std::promise<void> done;
     std::future<void> finished = done.get_future();
     {
-        std::lock_guard lock(s_cpu_queue_mutex);
+        std::lock_guard lock(s_cpu_mutex);
         s_cpu_queue.push_back([&function, &done] {
             function();
             done.set_value();
         });
+        s_cpu_wakeup.notify_one();
     }
     finished.wait();
 }
@@ -199,7 +248,7 @@ void Host::RunOnCPUThread(std::function<void()> function, bool block) {
 void Host::PumpMessagesOnCPUThread() {
     std::deque<std::function<void()>> pending;
     {
-        std::lock_guard lock(s_cpu_queue_mutex);
+        std::lock_guard lock(s_cpu_mutex);
         pending.swap(s_cpu_queue);
     }
     for (std::function<void()>& function : pending) function();
@@ -221,12 +270,10 @@ extern "C" JNIEXPORT jboolean JNICALL Java_io_github_lucaaszsx_betteraethersx2_r
 
 extern "C" JNIEXPORT void JNICALL Java_io_github_lucaaszsx_betteraethersx2_runtime_NativeRuntime_nativeStartSession(
     JNIEnv* env, jclass, jobject surface) {
-    if (s_cpu_thread.joinable()) return;
-    setWindow(ANativeWindow_fromSurface(env, surface));
-    s_cpu_thread = std::thread(cpuThreadMain);
+    startSession(ANativeWindow_fromSurface(env, surface));
 }
 
-// The session does not survive losing its surface yet: the app stops it and starts a new one.
+// The session does not survive losing its surface yet: the app stops it and starts a new one later.
 extern "C" JNIEXPORT void JNICALL
 Java_io_github_lucaaszsx_betteraethersx2_runtime_NativeRuntime_nativeStopSession(JNIEnv*, jclass) {
     stopSession();

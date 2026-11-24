@@ -1,0 +1,40 @@
+# Fast checks on every push and pull request. The Android build, ktlint, detekt and the no-INTERNET manifest step join
+# with the Android app; sanitizers, fuzzing and differential runs join with the code they test.
+name: CI
+
+on:
+    push:
+        branches: [main]
+    pull_request:
+
+permissions:
+    contents: read
+
+concurrency:
+    group: ci-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    format:
+        name: C++ formatting
+        runs-on: ubuntu-24.04
+        steps:
+            -   uses: actions/checkout@v4
+            -   name: Install clang-format
+                run: sudo apt-get update && sudo apt-get install --yes clang-format
+            -   name: Check formatting
+                run: git ls-files -z 'core/*.cpp' 'core/*.h' 'core/*.hpp' | xargs -0 --no-run-if-empty clang-format --dry-run --Werror
+
+    core:
+        name: Native core (host build and tests)
+        runs-on: ubuntu-24.04
+        steps:
+            -   uses: actions/checkout@v4
+            -   name: Install toolchain
+                run: sudo apt-get update && sudo apt-get install --yes ninja-build libgtest-dev
+            -   name: Configure
+                run: cmake -S core -B build/core -G Ninja -DCMAKE_BUILD_TYPE=Release
+            -   name: Build
+                run: cmake --build build/core
+            -   name: Test
+                run: ctest --test-dir build/core --output-on-failure

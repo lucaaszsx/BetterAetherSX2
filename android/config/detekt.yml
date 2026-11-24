@@ -1,5 +1,8 @@
 # Overrides on top of detekt's default rules.
 style:
+    # A literal assigned to a named property (a color token, a spacing value) is the constant itself.
+    MagicNumber:
+        ignorePropertyDeclaration: true
     # Single-statement blocks stay on one line without braces.
     BracesOnIfStatements:
         active: true

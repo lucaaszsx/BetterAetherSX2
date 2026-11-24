@@ -57,6 +57,16 @@ android {
         cmake { path = repoRoot.resolve("upstream/pcsx2/CMakeLists.txt") }
     }
 
+    signingConfigs {
+        // A fixed, public debug key, so a debug APK from any machine or CI run updates the installed one.
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -108,5 +118,14 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.activity.compose)
     implementation(libs.core.ktx)
+    implementation(libs.coroutines.android)
+    // SDL's native library registers its Java classes when it loads, so they must be in the APK even though the
+    // app never starts SDLActivity. The jar is built from source with the other dependencies.
+    implementation(
+        fileTree(depsDir.resolve("share/java/SDL3")) {
+            include("SDL3-*.jar")
+            exclude("*-sources.jar", "*-javadoc.jar")
+        },
+    )
     testImplementation(libs.junit)
 }

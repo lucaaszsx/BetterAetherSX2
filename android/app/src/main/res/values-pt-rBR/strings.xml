@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="library_empty">Nenhum jogo ainda. Escolha a pasta onde estão seus jogos.</string>
+    <string name="core_version">Núcleo %1$s</string>
+</resources>

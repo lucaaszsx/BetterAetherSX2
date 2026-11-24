@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name" translatable="false">Better AetherSX2</string>
+    <string name="library_empty">No games yet. Choose the folder that holds your game files.</string>
+    <string name="core_version">Core %1$s</string>
+</resources>

@@ -65,22 +65,26 @@ android {
     buildFeatures { compose = true }
 }
 
-val applyUpstreamPatches by tasks.registering(Exec::class) {
-    commandLine(repoRoot.resolve("upstream/apply-patches.sh"))
-}
+val applyUpstreamPatches =
+    tasks.register<Exec>("applyUpstreamPatches") {
+        commandLine(repoRoot.resolve("upstream/apply-patches.sh"))
+    }
 
 // The dependencies' shared libraries ship in the APK next to libbax.so.
-val stageDependencyLibraries by tasks.registering(Sync::class) {
-    from(depsDir.resolve("lib")) { include("*.so") }
-    into(layout.buildDirectory.dir("dependency-jni-libs/arm64-v8a"))
-}
+val dependencyJniLibs: File =
+    layout.buildDirectory
+        .dir("dependency-jni-libs")
+        .get()
+        .asFile
+
+val stageDependencyLibraries =
+    tasks.register<Sync>("stageDependencyLibraries") {
+        from(depsDir.resolve("lib")) { include("*.so") }
+        into(dependencyJniLibs.resolve("arm64-v8a"))
+    }
 
 androidComponents {
-    onVariants { variant ->
-        variant.sources.jniLibs?.addStaticSourceDirectory(
-            layout.buildDirectory.dir("dependency-jni-libs").get().asFile.path,
-        )
-    }
+    onVariants { variant -> variant.sources.jniLibs?.addStaticSourceDirectory(dependencyJniLibs.path) }
 }
 
 tasks.configureEach {

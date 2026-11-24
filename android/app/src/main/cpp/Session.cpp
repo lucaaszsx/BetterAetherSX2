@@ -70,6 +70,8 @@ bool initialize(const std::string& data_dir, const std::string& resources_dir) {
     EmuFolders::AppRoot = data_dir;
     EmuFolders::DataRoot = data_dir;
     EmuFolders::Resources = resources_dir;
+    // Upstream sets this inside SetDataDirectory, which picks desktop paths; the other folders are relative to it.
+    EmuFolders::Settings = Path::Combine(data_dir, "inis");
 
     const char* hardware_error = nullptr;
     if (!VMManager::PerformEarlyHardwareChecks(&hardware_error)) {
@@ -86,7 +88,10 @@ bool initialize(const std::string& data_dir, const std::string& resources_dir) {
     s_settings->Save();
 
     EmuFolders::LoadConfig(*s_settings);
-    if (!EmuFolders::EnsureFoldersExist()) return false;
+    if (!EmuFolders::EnsureFoldersExist()) {
+        __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, "Could not create the core folders in %s", data_dir.c_str());
+        return false;
+    }
     if (!loadFonts()) {
         __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, "Fonts missing from %s", resources_dir.c_str());
         return false;

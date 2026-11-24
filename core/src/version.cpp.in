@@ -1,0 +1,7 @@
+#include "bax/version.h"
+
+namespace bax {
+
+std::string_view coreVersion() { return "@PROJECT_VERSION@"; }
+
+} // namespace bax

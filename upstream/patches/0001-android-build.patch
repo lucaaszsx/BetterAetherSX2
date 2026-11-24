@@ -15,7 +15,7 @@ index b0c3945..11abde1 100644
  if(ENABLE_TESTS)
  	add_subdirectory(3rdparty/googletest)
 diff --git a/cmake/BuildParameters.cmake b/cmake/BuildParameters.cmake
-index 80c4469..1569165 100644
+index 80c4469..f20496c 100644
 --- a/cmake/BuildParameters.cmake
 +++ b/cmake/BuildParameters.cmake
 @@ -26,7 +26,7 @@ option(USE_VULKAN "Enable Vulkan GS renderer" ON)
@@ -47,6 +47,20 @@ index 80c4469..1569165 100644
  	message(STATUS "Building for Apple Silicon (ARM64).")
  	set(ARCH_ARM64 TRUE)
  	if(APPLE)
+@@ -131,6 +131,13 @@ elseif("${CMAKE_HOST_SYSTEM_PROCESSOR}" STREQUAL "arm64" OR "${CMAKE_HOST_SYSTEM
+ 		list(APPEND PCSX2_DEFS OVERRIDE_HOST_CACHE_LINE_SIZE=${HOST_CACHE_LINE_SIZE})
+ 	endif()
+ 	
++	# Android builds are cross-compiled, so nothing can be detected here. PCSX2 needs the page size to match the
++	# device exactly; nearly all Android devices use 4K pages and 64-byte cache lines.
++	if(ANDROID)
++		list(APPEND PCSX2_DEFS OVERRIDE_HOST_PAGE_SIZE=0x1000)
++		list(APPEND PCSX2_DEFS OVERRIDE_HOST_CACHE_LINE_SIZE=64)
++	endif()
++
+ 	# Windows page/cache line size seems to match x68-64 
+ 	if(WIN32)
+ 		list(APPEND PCSX2_DEFS OVERRIDE_HOST_PAGE_SIZE=0x1000)
 diff --git a/cmake/Pcsx2Utils.cmake b/cmake/Pcsx2Utils.cmake
 index 4213579..358f19c 100644
 --- a/cmake/Pcsx2Utils.cmake

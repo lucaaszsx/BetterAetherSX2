@@ -8,8 +8,11 @@
 #include "common/ProgressCallback.h"
 #include "common/SmallString.h"
 #include "pcsx2/Achievements.h"
+#include "pcsx2/GS/GS.h"
 #include "pcsx2/Host.h"
+#include "pcsx2/ImGui/FullscreenUI.h"
 #include "pcsx2/ImGui/ImGuiFullscreen.h"
+#include "pcsx2/ImGui/ImGuiManager.h"
 #include "pcsx2/Input/InputManager.h"
 #include "pcsx2/VMManager.h"
 

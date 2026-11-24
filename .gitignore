@@ -1,0 +1,35 @@
+# Build output
+/build/
+/out/
+*.o
+*.so
+*.a
+
+# Gradle and Android
+.gradle/
+local.properties
+android/**/build/
+*.apk
+*.aab
+*.keystore
+*.jks
+
+# Editors
+.idea/
+.vscode/
+*.iml
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+
+# Never commit user-supplied PS2 content
+*.iso
+*.chd
+*.cso
+*.zso
+*.bin
+*.cue
+*.ps2
+*.mcd

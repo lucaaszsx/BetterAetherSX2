@@ -1,0 +1,66 @@
+# AGENTS.md
+
+How to work in this repository, for humans and agents.
+
+## Basics
+
+- Everything (docs, code, comments, commits, PRs) is in English. The app UI ships in English and Brazilian Portuguese.
+- Decisions that cross areas (module boundaries, data formats, persistence) get a short ADR in `docs/adr/`. Local decisions do not.
+- When something is ambiguous, add a row to `docs/open-questions.md` with the default you followed, and mention it in the PR.
+
+## Repository map
+
+| Path | Contents |
+| --- | --- |
+| `core/` | Our native C++ code. Builds and tests on a Linux host. |
+| `upstream/pcsx2/` | Vendored PCSX2 plus small isolated patches (added when PCSX2 is vendored). |
+| `android/` | Kotlin/Compose app and JNI glue (added with the Android app). |
+| `docs/` | Architecture, ADRs, design guides, open questions. |
+
+Details: [docs/architecture.md](docs/architecture.md).
+
+## Commands
+
+```sh
+cmake -S core -B build/core -G Ninja && cmake --build build/core && ctest --test-dir build/core
+clang-format --dry-run --Werror $(git ls-files 'core/*.cpp' 'core/*.h')
+```
+
+Keep the local loop fast. Heavy suites (full differential runs, fuzzing, sanitizers, GS golden tests) run in CI; device tests and benchmarks run on real devices.
+
+## Code
+
+- Clean and direct: intention-revealing names, small functions, no dead or commented-out code, no magic numbers, never swallow an error, comments explain why.
+- No module, layer, interface or factory without a concrete reason (a second implementation, a test need, a build boundary). Say the reason in the PR. Deleting an unneeded abstraction is a good change.
+- The same applies to tooling: use the standard formatters and linters. Do not add custom check scripts.
+- Boundaries that stay: the core is separate from the app, the core builds and tests without a device, upstream code is separate from ours.
+- Everything that runs per frame is native code. Kotlin never sits on the per-frame path.
+- 4 spaces, never tabs. Comments in English.
+- Single quotes wherever the language allows (Python, shell, JS/TS); C++, Kotlin and JSON use double quotes for strings.
+- A block with a single statement goes on the same line, without braces: `if (!ready) return nullptr;`
+
+## UI copy and visuals
+
+- Copy says what the thing does or what happened, in plain, short words. Buttons are a verb plus an object. Errors say what happened, why, and what to do next. Progress shows real numbers.
+- Avoid filler and marketing voice: exclamation marks, cheering, greetings, emoji, words like "seamless" or "unleash" used for effect.
+- No sparkle or "magic" motifs, purple-pink gradients, gradient text, neon glows, blob backgrounds, stock people or robots, or untouched stock Material components.
+- Guide: [docs/design/copy.md](docs/design/copy.md).
+
+## Workflow
+
+1. Write a short plan in the draft PR description.
+2. Keep PRs small: at most 400 changed lines, not counting generated or vendored code.
+3. Tests come with the code. Run the formatter and the fast local suite.
+4. Someone other than the author reviews. Merge only with green CI.
+5. Update the affected docs in the same PR.
+
+Conventional Commits. `main` is protected. Branches: `feat/...`, `fix/...`.
+
+## Never
+
+- Commit BIOS files, games, keys, commercial game art or any copyrighted file, or link to where to get them.
+- Add network access of any kind, including the INTERNET permission.
+- Add closed-source binaries or dependencies whose license is incompatible with GPL-3.0-or-later. Record each new dependency's license in `NOTICE`.
+- Invent benchmark numbers, test results or compatibility ratings. Without evidence, write "not measured".
+- Disable or weaken tests to make CI pass.
+- Leave a TODO without an issue ID.

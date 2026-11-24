@@ -42,7 +42,7 @@ The Android app is not in the repository yet.
 
 ## Contributing
 
-Read [AGENTS.md](AGENTS.md) first. The repository map is in [docs/architecture.md](docs/architecture.md).
+Read [AGENTS.md](AGENTS.md) first.
 
 ## License
 

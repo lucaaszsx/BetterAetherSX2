@@ -8,7 +8,10 @@ plugins {
 android {
     // The package id lives only here and the app name only in strings.xml, so a rename touches two lines.
     namespace = "io.github.lucaaszsx.betteraethersx2"
-    compileSdk = 37
+    // Compose 1.13 needs the 37.1 or newer SDK extension level.
+    compileSdk {
+        version = release(37) { minorApiLevel = 2 }
+    }
 
     defaultConfig {
         applicationId = "io.github.lucaaszsx.betteraethersx2"

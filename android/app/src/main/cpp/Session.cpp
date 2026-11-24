@@ -2,6 +2,7 @@
 // The emulation session: settings and folders, one CPU thread that owns the VM, and the window the app hands over
 // from its Surface. The CPU thread follows upstream's pcsx2-gsrunner (PCSX2 Dev Team, GPL-3.0+).
 
+#include "common/Console.h"
 #include "common/FileSystem.h"
 #include "common/Path.h"
 #include "common/WindowInfo.h"
@@ -44,6 +45,24 @@ std::atomic<std::thread::id> s_cpu_thread_id;
 std::mutex s_cpu_queue_mutex;
 std::deque<std::function<void()>> s_cpu_queue;
 
+int androidLogPriority(LOGLEVEL level) {
+    switch (level) {
+    case LOGLEVEL_ERROR:
+        return ANDROID_LOG_ERROR;
+    case LOGLEVEL_WARNING:
+        return ANDROID_LOG_WARN;
+    case LOGLEVEL_INFO:
+        return ANDROID_LOG_INFO;
+    default:
+        return ANDROID_LOG_DEBUG;
+    }
+}
+
+// The core writes its console to stdout, which Android discards; this sends it to logcat instead.
+void logToLogcat(LOGLEVEL level, ConsoleColors, std::string_view message) {
+    __android_log_print(androidLogPriority(level), "PCSX2", "%.*s", static_cast<int>(message.size()), message.data());
+}
+
 // Settings the Android build always needs, whatever the user file says.
 void applyAndroidOverrides(SettingsInterface& si) {
     si.SetIntValue("EmuCore/GS", "Renderer", static_cast<int>(GSRendererType::VK));
@@ -67,6 +86,7 @@ bool loadFonts() {
 }
 
 bool initialize(const std::string& data_dir, const std::string& resources_dir) {
+    Log::SetHostOutputLevel(LOGLEVEL_DEV, logToLogcat);
     EmuFolders::AppRoot = data_dir;
     EmuFolders::DataRoot = data_dir;
     EmuFolders::Resources = resources_dir;
@@ -221,5 +241,6 @@ extern "C" JNIEXPORT void JNICALL Java_io_github_lucaaszsx_betteraethersx2_runti
         s_window.surface_width = static_cast<u32>(width);
         s_window.surface_height = static_cast<u32>(height);
     }
-    if (s_cpu_thread.joinable()) MTGS::ResizeDisplayWindow(static_cast<u32>(width), static_cast<u32>(height), 1.0f);
+    // The GS may have failed to open, or not opened yet; it picks up the size from the window when it does.
+    if (MTGS::IsOpen()) MTGS::ResizeDisplayWindow(static_cast<u32>(width), static_cast<u32>(height), 1.0f);
 }

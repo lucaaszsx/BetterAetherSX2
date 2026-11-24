@@ -36,6 +36,9 @@ android {
                 arguments +=
                     listOf(
                         "-DANDROID_STL=c++_shared",
+                        // The core always builds optimized: an unoptimized emulator is too slow to test, and
+                        // upstream debug builds abort on assertions that release builds recover from.
+                        "-DCMAKE_BUILD_TYPE=Release",
                         "-DPCSX2_EXTERNAL_FRONTEND_DIR=${projectDir.resolve("src/main/cpp")}",
                         "-DCMAKE_PREFIX_PATH=$depsDir",
                         "-DCMAKE_FIND_ROOT_PATH=$depsDir",

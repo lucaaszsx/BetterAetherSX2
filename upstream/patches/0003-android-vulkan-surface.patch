@@ -57,6 +57,20 @@ index 65c11f8..75d0055 100644
  #include "vulkan/vulkan.h"
  
  #if defined(X11_API)
+diff --git a/pcsx2/GS/Renderers/Vulkan/VKShaderCache.cpp b/pcsx2/GS/Renderers/Vulkan/VKShaderCache.cpp
+index 5f8b2ba..77d0526 100644
+--- a/pcsx2/GS/Renderers/Vulkan/VKShaderCache.cpp
++++ b/pcsx2/GS/Renderers/Vulkan/VKShaderCache.cpp
+@@ -139,7 +139,8 @@ bool dyn_shaderc::Open()
+ 
+ 	Error error;
+ 
+-#ifdef _WIN32
++#if defined(_WIN32) || defined(__ANDROID__)
++	// Android libraries have no versioned file names.
+ 	const std::string libname = DynamicLibrary::GetVersionedFilename("shaderc_shared");
+ #else
+ 	// Use versioned, bundle post-processing adds it..
 diff --git a/pcsx2/GS/Renderers/Vulkan/VKSwapChain.cpp b/pcsx2/GS/Renderers/Vulkan/VKSwapChain.cpp
 index 4de995d..4d1a1ae 100644
 --- a/pcsx2/GS/Renderers/Vulkan/VKSwapChain.cpp

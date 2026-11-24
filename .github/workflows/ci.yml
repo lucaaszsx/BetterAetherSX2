@@ -54,15 +54,22 @@ jobs:
                     sudo apt-get update && sudo apt-get install --yes ninja-build
                     yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "ndk;$NDK_VERSION" > /dev/null
                     echo "ANDROID_NDK=$ANDROID_SDK_ROOT/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+            # Restore and save are separate steps so the dependencies are cached even when the core build fails.
             -   name: Restore dependencies
                 id: deps-cache
-                uses: actions/cache@v4
+                uses: actions/cache/restore@v4
                 with:
                     path: build/android-deps
                     key: android-deps-${{ env.NDK_VERSION }}-${{ hashFiles('android/deps/build-deps.sh') }}
             -   name: Build dependencies
                 if: steps.deps-cache.outputs.cache-hit != 'true'
                 run: mkdir -p build && cd build && ../android/deps/build-deps.sh "$ANDROID_NDK" "$DEPS_PREFIX"
+            -   name: Save dependencies
+                if: steps.deps-cache.outputs.cache-hit != 'true'
+                uses: actions/cache/save@v4
+                with:
+                    path: build/android-deps
+                    key: ${{ steps.deps-cache.outputs.cache-primary-key }}
             -   name: Upload dependencies
                 uses: actions/upload-artifact@v4
                 with:

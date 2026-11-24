@@ -200,8 +200,13 @@ void stopSession() {
     std::unique_lock lock(s_cpu_mutex);
     if (!s_vm_active) return;
     s_stop_requested = true;
-    if (VMManager::GetState() == VMState::Running || VMManager::GetState() == VMState::Paused)
-        VMManager::SetState(VMState::Stopping);
+    // The state change must happen on the CPU thread: leaving the interpreter jumps back into that thread's
+    // execution loop, which corrupts the stack when done from any other thread.
+    s_cpu_queue.push_back([] {
+        if (VMManager::GetState() == VMState::Running || VMManager::GetState() == VMState::Paused)
+            VMManager::SetState(VMState::Stopping);
+    });
+    s_cpu_wakeup.notify_one();
     s_vm_finished.wait(lock, [] { return !s_vm_active; });
 }
 
@@ -255,7 +260,7 @@ void Host::PumpMessagesOnCPUThread() {
 }
 
 void Host::RequestVMShutdown(bool, bool, bool) {
-    VMManager::SetState(VMState::Stopping);
+    Host::RunOnCPUThread([] { VMManager::SetState(VMState::Stopping); });
 }
 
 extern "C" JNIEXPORT jboolean JNICALL Java_io_github_lucaaszsx_betteraethersx2_runtime_NativeRuntime_nativeInitialize(

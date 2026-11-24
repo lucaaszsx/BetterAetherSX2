@@ -135,8 +135,9 @@ cmake_install "freetype-$FREETYPE" \
 
 echo 'Building SDL'
 unpack "$SDL.tar.gz" "$SDL"
-cmake_install "$SDL" -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_VIDEO=OFF -DSDL_POWER=OFF -DSDL_SENSOR=OFF \
-    -DSDL_DIALOG=OFF -DSDL_TRAY=OFF -DSDL_TEST_LIBRARY=OFF
+# Subsystems stay at their defaults: SDL's Android glue references the video and sensor code, so turning them off
+# as the desktop build does fails to link.
+cmake_install "$SDL" -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TEST_LIBRARY=OFF
 
 echo 'Building PlutoVG'
 unpack "plutovg-$PLUTOVG.tar.gz" "plutovg-$PLUTOVG"

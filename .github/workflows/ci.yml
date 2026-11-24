@@ -79,4 +79,5 @@ jobs:
             -   name: Configure
                 run: android/configure-core.sh "$ANDROID_NDK" "$DEPS_PREFIX" build/android-core
             -   name: Build
-                run: cmake --build build/android-core --target common PCSX2
+                # -k 0 keeps going after a failure so one run reports every compile error.
+                run: cmake --build build/android-core --target common PCSX2 -- -k 0

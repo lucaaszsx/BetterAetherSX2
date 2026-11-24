@@ -90,3 +90,11 @@ jobs:
                     name: debug-apk
                     path: android/app/build/outputs/apk/debug/*.apk
                     retention-days: 7
+            # The APK carries a stripped libbax.so; this copy keeps the symbols, to turn device crash addresses into
+            # function names.
+            -   name: Upload native symbols
+                uses: actions/upload-artifact@v4
+                with:
+                    name: native-symbols
+                    path: android/app/build/intermediates/cxx/**/obj/arm64-v8a/libbax.so
+                    retention-days: 7

@@ -1,5 +1,5 @@
-# Checks on every push to main and every pull request. The APK build, ktlint, detekt and the no-INTERNET manifest step
-# join with the Android app; sanitizers, fuzzing and differential runs join with the code they test.
+# Checks on every push to main and every pull request. Sanitizers, fuzzing and differential runs join with the code
+# they test.
 name: CI
 
 on:
@@ -81,3 +81,24 @@ jobs:
             -   name: Build
                 # -k 0 keeps going after a failure so one run reports every compile error.
                 run: cmake --build build/android-core --target common PCSX2 -- -k 0
+
+    android-app:
+        name: Android app (lint, tests, debug APK)
+        runs-on: ubuntu-24.04
+        defaults:
+            run:
+                working-directory: android
+        steps:
+            -   uses: actions/checkout@v4
+            -   uses: actions/setup-java@v4
+                with:
+                    distribution: temurin
+                    java-version: 17
+            -   uses: gradle/actions/setup-gradle@v4
+            -   name: Lint, unit tests and debug build
+                run: ./gradlew ktlintCheck detekt testDebugUnitTest assembleDebug
+            -   name: Merged manifest has no INTERNET permission
+                run: |
+                    manifest=$(find app/build/intermediates -path '*merged_manifest*' -name AndroidManifest.xml | head -n 1)
+                    test -n "$manifest"
+                    ! grep -q 'android.permission.INTERNET' "$manifest"

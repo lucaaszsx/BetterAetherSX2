@@ -38,7 +38,14 @@ android/configure-core.sh <ndk-dir> build/android-deps build/android-core
 cmake --build build/android-core --target common PCSX2
 ```
 
-The Android app is not in the repository yet.
+Android app (needs JDK 17 and the Android SDK):
+
+```sh
+cd android
+./gradlew assembleDebug
+```
+
+The app does not link the emulator core yet; it runs against a stand-in runtime.
 
 ## Contributing
 

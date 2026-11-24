@@ -1,0 +1,17 @@
+# Overrides on top of detekt's default rules.
+style:
+    # Single-statement blocks stay on one line without braces.
+    BracesOnIfStatements:
+        active: true
+        singleLine: never
+        multiLine: always
+    ForbiddenComment:
+        active: true
+        comments:
+            -   value: 'TODO:'
+                reason: 'Write TODO(#issue) with an issue ID.'
+
+naming:
+    # Composable functions are named like types.
+    FunctionNaming:
+        ignoreAnnotated: ['Composable']

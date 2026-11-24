@@ -5,6 +5,7 @@
 #include "common/FileSystem.h"
 #include "common/Path.h"
 #include "common/WindowInfo.h"
+#include "pcsx2/CDVD/CDVDcommon.h"
 #include "pcsx2/Config.h"
 #include "pcsx2/GS/GS.h"
 #include "pcsx2/Host.h"

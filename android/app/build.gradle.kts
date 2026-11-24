@@ -96,13 +96,35 @@ val stageDependencyLibraries =
         into(dependencyJniLibs.resolve("arm64-v8a"))
     }
 
+// The core reads shaders, fonts and its game database from a resources folder; the app extracts this copy on
+// first launch. Only what the Android build uses is packaged.
+val coreAssets: File =
+    layout.buildDirectory
+        .dir("core-assets")
+        .get()
+        .asFile
+
+val stageCoreResources =
+    tasks.register<Sync>("stageCoreResources") {
+        from(repoRoot.resolve("upstream/pcsx2/bin/resources")) {
+            include("shaders/common/**", "shaders/vulkan/**", "GameIndex.yaml", "RedumpDatabase.yaml")
+            include("fonts/Roboto-Regular.ttf", "fonts/Roboto-Regular-copyright", "fonts/RobotoMono-Medium.ttf")
+            include("fonts/fa-solid-900.ttf", "fonts/promptfont.otf", "fonts/promptfont-license")
+        }
+        into(coreAssets.resolve("resources"))
+    }
+
 androidComponents {
-    onVariants { variant -> variant.sources.jniLibs?.addStaticSourceDirectory(dependencyJniLibs.path) }
+    onVariants { variant ->
+        variant.sources.jniLibs?.addStaticSourceDirectory(dependencyJniLibs.path)
+        variant.sources.assets?.addStaticSourceDirectory(coreAssets.path)
+    }
 }
 
 tasks.configureEach {
     if (name.startsWith("configureCMake")) dependsOn(applyUpstreamPatches)
     if (name.startsWith("merge") && name.endsWith("JniLibFolders")) dependsOn(stageDependencyLibraries)
+    if (name.startsWith("merge") && name.endsWith("Assets")) dependsOn(stageCoreResources)
 }
 
 ktlint {

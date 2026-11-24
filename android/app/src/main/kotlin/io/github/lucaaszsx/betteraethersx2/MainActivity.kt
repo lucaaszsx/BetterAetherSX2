@@ -1,5 +1,6 @@
 package io.github.lucaaszsx.betteraethersx2
 
+import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
@@ -8,6 +9,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -16,8 +18,6 @@ import androidx.compose.runtime.setValue
 import io.github.lucaaszsx.betteraethersx2.bios.BiosImportResult
 import io.github.lucaaszsx.betteraethersx2.bios.BiosImporter
 import io.github.lucaaszsx.betteraethersx2.bios.KnownBiosDumps
-import io.github.lucaaszsx.betteraethersx2.runtime.EmulatorRuntime
-import io.github.lucaaszsx.betteraethersx2.runtime.NativeRuntime
 import io.github.lucaaszsx.betteraethersx2.ui.BetterTheme
 import io.github.lucaaszsx.betteraethersx2.ui.LibraryScreen
 import kotlinx.coroutines.Dispatchers
@@ -27,10 +27,11 @@ import java.io.FileNotFoundException
 import java.io.IOException
 
 class MainActivity : ComponentActivity() {
-    private val runtime: EmulatorRuntime by lazy { NativeRuntime() }
+    private val app by lazy { application as BetterApp }
+    private val biosDirectory by lazy { filesDir.resolve("bios") }
     private val biosImporter by lazy {
         val knownDumps = assets.open("known-bios.txt").use(KnownBiosDumps::parse)
-        BiosImporter(filesDir.resolve("bios"), runtime, knownDumps)
+        BiosImporter(biosDirectory, app.runtime, knownDumps)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -38,17 +39,27 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             var biosImport by remember { mutableStateOf<BiosImportResult?>(null) }
+            var hasBios by remember { mutableStateOf(biosDirectory.list().orEmpty().isNotEmpty()) }
+            var coreReady by remember { mutableStateOf<Boolean?>(null) }
             val scope = rememberCoroutineScope()
+            LaunchedEffect(Unit) { coreReady = withContext(Dispatchers.IO) { app.prepareRuntime() } }
             val pickBios =
                 rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
                     if (uri == null) return@rememberLauncherForActivityResult
-                    scope.launch { biosImport = withContext(Dispatchers.IO) { importBios(uri) } }
+                    scope.launch {
+                        val result = withContext(Dispatchers.IO) { importBios(uri) }
+                        biosImport = result
+                        if (result is BiosImportResult.Recognized) hasBios = true
+                    }
                 }
             BetterTheme {
                 LibraryScreen(
-                    coreVersion = runtime.coreVersion,
+                    coreVersion = app.runtime.coreVersion,
+                    coreReady = coreReady,
+                    hasBios = hasBios,
                     biosImport = biosImport,
                     onImportBios = { pickBios.launch(arrayOf("*/*")) },
+                    onStartBios = { startActivity(Intent(this, GameActivity::class.java)) },
                 )
             }
         }

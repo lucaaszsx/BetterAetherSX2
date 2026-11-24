@@ -24,8 +24,12 @@ private val LineSpacing = 12.dp
 @Composable
 fun LibraryScreen(
     coreVersion: String,
+    // Null while the core is still being prepared.
+    coreReady: Boolean?,
+    hasBios: Boolean,
     biosImport: BiosImportResult?,
     onImportBios: () -> Unit,
+    onStartBios: () -> Unit,
 ) {
     Column(
         modifier =
@@ -44,6 +48,17 @@ fun LibraryScreen(
             textAlign = TextAlign.Center,
         )
         Button(onClick = onImportBios) { Text(stringResource(R.string.import_bios)) }
+        if (hasBios) {
+            Button(onClick = onStartBios, enabled = coreReady == true) { Text(stringResource(R.string.start_bios)) }
+        }
+        if (coreReady == false) {
+            Text(
+                text = stringResource(R.string.core_not_ready),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+                textAlign = TextAlign.Center,
+            )
+        }
         if (biosImport != null) {
             Text(
                 text = biosImportMessage(biosImport),

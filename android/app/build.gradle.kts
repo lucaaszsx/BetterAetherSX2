@@ -108,5 +108,6 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.activity.compose)
     implementation(libs.core.ktx)
+    implementation(libs.coroutines.android)
     testImplementation(libs.junit)
 }

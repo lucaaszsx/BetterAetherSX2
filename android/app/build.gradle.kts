@@ -5,6 +5,15 @@ plugins {
     alias(libs.plugins.detekt)
 }
 
+val repoRoot: File = rootProject.projectDir.parentFile
+
+// Where android/deps/build-deps.sh installed PCSX2's libraries. Override with -Pbax.depsDir=<path>.
+val depsDir: File =
+    providers
+        .gradleProperty("bax.depsDir")
+        .map { file(it) }
+        .getOrElse(repoRoot.resolve("build/android-deps"))
+
 android {
     // The package id lives only here and the app name only in strings.xml, so a rename touches two lines.
     namespace = "io.github.lucaaszsx.betteraethersx2"
@@ -20,6 +29,32 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         ndk { abiFilters += "arm64-v8a" }
+
+        externalNativeBuild {
+            cmake {
+                // Every library shares one libc++, so the dependencies and the app must agree on c++_shared.
+                arguments +=
+                    listOf(
+                        "-DANDROID_STL=c++_shared",
+                        "-DPCSX2_EXTERNAL_FRONTEND_DIR=${projectDir.resolve("src/main/cpp")}",
+                        "-DCMAKE_PREFIX_PATH=$depsDir",
+                        "-DCMAKE_FIND_ROOT_PATH=$depsDir",
+                        // Desktop pieces of upstream: the Qt UI, the OpenGL renderer (the app is Vulkan only)
+                        // and the unit tests.
+                        "-DENABLE_QT_UI=OFF",
+                        "-DENABLE_TESTS=OFF",
+                        "-DUSE_OPENGL=OFF",
+                        "-DUSE_VULKAN=ON",
+                    )
+                targets += "bax"
+            }
+        }
+    }
+
+    ndkVersion = "30.0.16248370"
+
+    externalNativeBuild {
+        cmake { path = repoRoot.resolve("upstream/pcsx2/CMakeLists.txt") }
     }
 
     compileOptions {
@@ -28,6 +63,29 @@ android {
     }
 
     buildFeatures { compose = true }
+}
+
+val applyUpstreamPatches by tasks.registering(Exec::class) {
+    commandLine(repoRoot.resolve("upstream/apply-patches.sh"))
+}
+
+// The dependencies' shared libraries ship in the APK next to libbax.so.
+val stageDependencyLibraries by tasks.registering(Sync::class) {
+    from(depsDir.resolve("lib")) { include("*.so") }
+    into(layout.buildDirectory.dir("dependency-jni-libs/arm64-v8a"))
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.sources.jniLibs?.addStaticSourceDirectory(
+            layout.buildDirectory.dir("dependency-jni-libs").get().asFile.path,
+        )
+    }
+}
+
+tasks.configureEach {
+    if (name.startsWith("configureCMake")) dependsOn(applyUpstreamPatches)
+    if (name.startsWith("merge") && name.endsWith("JniLibFolders")) dependsOn(stageDependencyLibraries)
 }
 
 ktlint {

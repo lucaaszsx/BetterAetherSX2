@@ -84,6 +84,7 @@ cmake_install() {
         -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
         -DANDROID_ABI=arm64-v8a \
         -DANDROID_PLATFORM="$ANDROID_PLATFORM" \
+        -DANDROID_STL=c++_shared \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_PREFIX_PATH="$PREFIX" \
         -DCMAKE_FIND_ROOT_PATH="$PREFIX" \

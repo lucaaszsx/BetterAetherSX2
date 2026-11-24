@@ -23,7 +23,7 @@ jobs:
             -   name: Install clang-format
                 run: sudo apt-get update && sudo apt-get install --yes clang-format
             -   name: Check formatting
-                run: git ls-files -z 'core/*.cpp' 'core/*.h' 'core/*.hpp' | xargs -0 --no-run-if-empty clang-format --dry-run --Werror
+                run: git ls-files -z 'core/*.cpp' 'core/*.h' 'core/*.hpp' 'android/*.cpp' 'android/*.h' | xargs -0 --no-run-if-empty clang-format --dry-run --Werror
 
     core:
         name: Native core (host build and tests)
@@ -39,8 +39,8 @@ jobs:
             -   name: Test
                 run: ctest --test-dir build/core --output-on-failure
 
-    android-core:
-        name: PCSX2 core for Android arm64-v8a
+    android:
+        name: Android app (native core, lint, tests, debug APK)
         runs-on: ubuntu-24.04
         env:
             NDK_VERSION: 30.0.16248370
@@ -49,12 +49,17 @@ jobs:
             -   uses: actions/checkout@v4
                 with:
                     submodules: true
-            -   name: Install toolchain
+            -   uses: actions/setup-java@v4
+                with:
+                    distribution: temurin
+                    java-version: 17
+            -   uses: gradle/actions/setup-gradle@v4
+            -   name: Install NDK
                 run: |
                     sudo apt-get update && sudo apt-get install --yes ninja-build
                     yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" "ndk;$NDK_VERSION" > /dev/null
                     echo "ANDROID_NDK=$ANDROID_SDK_ROOT/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
-            # Restore and save are separate steps so the dependencies are cached even when the core build fails.
+            # Restore and save are separate steps so the dependencies are cached even when a later step fails.
             -   name: Restore dependencies
                 id: deps-cache
                 uses: actions/cache/restore@v4
@@ -70,35 +75,18 @@ jobs:
                 with:
                     path: build/android-deps
                     key: ${{ steps.deps-cache.outputs.cache-primary-key }}
-            -   name: Upload dependencies
-                uses: actions/upload-artifact@v4
-                with:
-                    name: android-deps
-                    path: build/android-deps
-                    retention-days: 7
-            -   name: Configure
-                run: android/configure-core.sh "$ANDROID_NDK" "$DEPS_PREFIX" build/android-core
-            -   name: Build
-                # -k 0 keeps going after a failure so one run reports every compile error.
-                run: cmake --build build/android-core --target common PCSX2 -- -k 0
-
-    android-app:
-        name: Android app (lint, tests, debug APK)
-        runs-on: ubuntu-24.04
-        defaults:
-            run:
-                working-directory: android
-        steps:
-            -   uses: actions/checkout@v4
-            -   uses: actions/setup-java@v4
-                with:
-                    distribution: temurin
-                    java-version: 17
-            -   uses: gradle/actions/setup-gradle@v4
             -   name: Lint, unit tests and debug build
-                run: ./gradlew ktlintCheck detekt testDebugUnitTest assembleDebug
+                working-directory: android
+                run: ./gradlew ktlintCheck detekt testDebugUnitTest assembleDebug -Pbax.depsDir="$DEPS_PREFIX"
             -   name: Merged manifest has no INTERNET permission
+                working-directory: android
                 run: |
                     manifest=$(find app/build/intermediates -path '*merged_manifest*' -name AndroidManifest.xml | head -n 1)
                     test -n "$manifest"
                     ! grep -q 'android.permission.INTERNET' "$manifest"
+            -   name: Upload debug APK
+                uses: actions/upload-artifact@v4
+                with:
+                    name: debug-apk
+                    path: android/app/build/outputs/apk/debug/*.apk
+                    retention-days: 7

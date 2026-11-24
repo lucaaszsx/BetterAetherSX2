@@ -15,7 +15,7 @@ How to work in this repository, for humans and agents.
 | `core/` | Our native C++ code. Builds and tests on a Linux host. |
 | `upstream/pcsx2/` | PCSX2 submodule, pinned to a release. Never edit it in place. |
 | `upstream/patches/` | Our changes to PCSX2 as patch files, applied by `upstream/apply-patches.sh`. Keep them few and small. |
-| `android/` | Gradle project (`app/`: Kotlin/Compose UI), plus scripts that build PCSX2 and its libraries with the NDK. |
+| `android/` | Gradle project. `app/src/main/kotlin`: Kotlin/Compose UI. `app/src/main/cpp`: the native library `libbax.so` (JNI entry points and the host callbacks PCSX2 expects from a frontend). `deps/build-deps.sh`: builds PCSX2's libraries with the NDK. |
 
 `android/` depends on `core/` and `upstream/`; `core/` depends on `upstream/`; nothing depends on `android/`.
 

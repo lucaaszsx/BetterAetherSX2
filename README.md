@@ -29,23 +29,16 @@ cmake --build build/core
 ctest --test-dir build/core
 ```
 
-PCSX2 core for Android (needs the NDK r30; the dependency build is long, CI runs it):
+Android app (needs JDK 17, the Android SDK and NDK r30). The libraries PCSX2 needs are built once with the NDK; the build is long, and CI caches it:
 
 ```sh
 git submodule update --init
 android/deps/build-deps.sh <ndk-dir> build/android-deps
-android/configure-core.sh <ndk-dir> build/android-deps build/android-core
-cmake --build build/android-core --target common PCSX2
-```
-
-Android app (needs JDK 17 and the Android SDK):
-
-```sh
 cd android
 ./gradlew assembleDebug
 ```
 
-The app does not link the emulator core yet; it runs against a stand-in runtime.
+Gradle applies the patches in `upstream/patches/`, builds the PCSX2 core and the app's native library `libbax.so`, and packages them with the dependencies.
 
 ## Contributing
 

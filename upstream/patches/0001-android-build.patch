@@ -1,3 +1,19 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index b0c3945..11abde1 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -57,6 +57,11 @@ if (WIN32)
+ 	add_subdirectory(updater)
+ endif()
+ 
++# A frontend that lives outside this tree (the Android app) adds its targets here, after the core targets exist.
++if(PCSX2_EXTERNAL_FRONTEND_DIR)
++	add_subdirectory("${PCSX2_EXTERNAL_FRONTEND_DIR}" "${CMAKE_BINARY_DIR}/external-frontend")
++endif()
++
+ # tests
+ if(ENABLE_TESTS)
+ 	add_subdirectory(3rdparty/googletest)
 diff --git a/cmake/BuildParameters.cmake b/cmake/BuildParameters.cmake
 index 80c4469..1569165 100644
 --- a/cmake/BuildParameters.cmake
@@ -71,7 +87,7 @@ index f3b71b7..ec92302 100644
  		if(LINUX)
  			check_lib(LIBUDEV libudev libudev.h)
 diff --git a/common/CMakeLists.txt b/common/CMakeLists.txt
-index d1bad44..49cdb63 100644
+index d1bad44..d9dc23f 100644
 --- a/common/CMakeLists.txt
 +++ b/common/CMakeLists.txt
 @@ -157,6 +157,12 @@ elseif(APPLE)
@@ -79,10 +95,10 @@ index d1bad44..49cdb63 100644
  		"-framework IOKit"
  	)
 +elseif(ANDROID)
-+	# The Android app provides the rest of the host layer (LnxMisc.cpp needs D-Bus and X11).
 +	target_sources(common PRIVATE
 +		Linux/LnxHostSys.cpp
 +		Linux/LnxThreads.cpp
++		Linux/LnxMisc.cpp
 +	)
  else()
  	target_sources(common PRIVATE
@@ -96,8 +112,98 @@ index d1bad44..49cdb63 100644
  	# libcurl-based HTTPDownloader
  	target_sources(common PRIVATE
  		HTTPDownloaderCurl.cpp
+diff --git a/common/Linux/LnxMisc.cpp b/common/Linux/LnxMisc.cpp
+index 84901fe..596a8a7 100644
+--- a/common/Linux/LnxMisc.cpp
++++ b/common/Linux/LnxMisc.cpp
+@@ -13,14 +13,18 @@
+ 
+ #include "fmt/format.h"
+ 
++#ifndef __ANDROID__
+ #include <dbus/dbus.h>
++#endif
+ #include <spawn.h>
+ #include <sys/sysinfo.h>
+ #include <sys/time.h>
+ #include <sys/wait.h>
+ #include <unistd.h>
++#ifndef __ANDROID__
+ #include <X11/Xlib.h>
+ #include <X11/extensions/XInput2.h>
++#endif
+ 
+ #include <cstdlib>
+ #include <cstring>
+@@ -140,6 +144,7 @@ std::string GetOSVersionString()
+ #endif
+ }
+ 
++#ifndef __ANDROID__
+ static bool SetScreensaverInhibitDBus(const bool inhibit_requested, const char* program_name, const char* reason)
+ {
+ 	static dbus_uint32_t s_cookie;
+@@ -328,6 +333,26 @@ void Common::DetachMousePositionCb()
+ 		mouseThread.join();
+ 	}
+ }
++#else
++// The Android app keeps the screen on through its window flags, and has no desktop pointer to move or track.
++bool Common::InhibitScreensaver(bool inhibit)
++{
++	return false;
++}
++
++void Common::SetMousePosition(int x, int y)
++{
++}
++
++bool Common::AttachMousePositionCb(std::function<void(int, int)> cb)
++{
++	return false;
++}
++
++void Common::DetachMousePositionCb()
++{
++}
++#endif
+ 
+ bool Common::PlaySoundAsync(const char* path)
+ {
+diff --git a/pcsx2/CDVD/Linux/DriveUtility.cpp b/pcsx2/CDVD/Linux/DriveUtility.cpp
+index 6e3a4c2..70e0f60 100644
+--- a/pcsx2/CDVD/Linux/DriveUtility.cpp
++++ b/pcsx2/CDVD/Linux/DriveUtility.cpp
+@@ -3,7 +3,9 @@
+ 
+ #include "CDVD/CDVDdiscReader.h"
+ 
++#ifndef __ANDROID__
+ #include <libudev.h>
++#endif
+ #include <linux/cdrom.h>
+ #include <fcntl.h>
+ #include <sys/ioctl.h>
+@@ -11,6 +13,9 @@
+ 
+ std::vector<std::string> GetOpticalDriveList()
+ {
++#ifdef __ANDROID__
++	return {};
++#else
+ 	udev* udev_context = udev_new();
+ 	if (!udev_context)
+ 		return {};
+@@ -39,6 +44,7 @@ std::vector<std::string> GetOpticalDriveList()
+ 	udev_unref(udev_context);
+ 
+ 	return drives;
++#endif
+ }
+ 
+ void GetValidDrive(std::string& drive)
 diff --git a/pcsx2/CMakeLists.txt b/pcsx2/CMakeLists.txt
-index 4652ff9..76d765d 100644
+index 4652ff9..85a2a50 100644
 --- a/pcsx2/CMakeLists.txt
 +++ b/pcsx2/CMakeLists.txt
 @@ -365,6 +365,12 @@ set(pcsx2DEV9Headers
@@ -113,7 +219,21 @@ index 4652ff9..76d765d 100644
  # USB sources
  set(pcsx2USBSources
  	USB/USB.cpp
-@@ -1196,7 +1202,7 @@ if(WIN32)
+@@ -1115,7 +1121,12 @@ target_sources(PCSX2 PRIVATE
+ )
+ 
+ # platform sources
+-if(LINUX)
++if(ANDROID)
++	# Apps cannot open optical drives; the Linux sources still provide the disc-reader entry points.
++	target_sources(PCSX2 PRIVATE
++		${pcsx2LinuxSources}
++		)
++elseif(LINUX)
+ 	target_sources(PCSX2 PRIVATE
+ 		${pcsx2LinuxSources}
+ 		${pcsx2LinuxHeaders}
+@@ -1196,7 +1207,7 @@ if(WIN32)
  		dwmapi.lib
  		OneCore.lib
  	)
@@ -167,3 +287,32 @@ index 346cc8c..9eb9020 100644
  
  bool has_link = true;
  volatile bool fireIntR = false;
+diff --git a/pcsx2/ImGui/FullscreenUI_Settings.cpp b/pcsx2/ImGui/FullscreenUI_Settings.cpp
+index ebbbe89..470781f 100644
+--- a/pcsx2/ImGui/FullscreenUI_Settings.cpp
++++ b/pcsx2/ImGui/FullscreenUI_Settings.cpp
+@@ -3782,7 +3782,12 @@ void FullscreenUI::DrawNetworkHDDSettingsPage()
+ 		api_types.emplace_back(Pcsx2Config::DEV9Options::NetApi::Unset);
+ 		api_display_names.emplace_back("Unset");
+ 
++#ifdef __ANDROID__
++		// No libpcap on Android.
++		std::vector<AdapterEntry> pcap_adapters;
++#else
+ 		std::vector<AdapterEntry> pcap_adapters = PCAPAdapter::GetAdapters();
++#endif
+ 		if (!pcap_adapters.empty())
+ 		{
+ 			std::vector<AdapterEntry> pcap_bridged_adapters;
+@@ -4008,7 +4013,11 @@ void FullscreenUI::DrawNetworkHDDSettingsPage()
+ 	AdapterOptions adapter_options = AdapterOptions::None;
+ 	const std::string final_api = bsi->GetStringValue("DEV9/Eth", "EthApi", "Unset");
+ 	if (final_api == "PCAP Bridged" || final_api == "PCAP Switched")
++#ifdef __ANDROID__
++		adapter_options = AdapterOptions::None;
++#else
+ 		adapter_options = PCAPAdapter::GetAdapterOptions();
++#endif
+ #ifdef _WIN32
+ 	else if (final_api == "TAP")
+ 		adapter_options = TAPAdapter::GetAdapterOptions();

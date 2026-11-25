@@ -2,7 +2,10 @@
 // The emulation session: settings and folders, one CPU thread that owns the VM, and the window the app hands over
 // from its Surface. The CPU thread follows upstream's pcsx2-gsrunner (PCSX2 Dev Team, GPL-3.0+).
 
+#include "Session.h"
+
 #include "common/Console.h"
+#include "common/Error.h"
 #include "common/FileSystem.h"
 #include "common/Path.h"
 #include "common/WindowInfo.h"
@@ -27,6 +30,8 @@
 #include <jni.h>
 #include <memory>
 #include <mutex>
+#include <optional>
+#include <string>
 #include <thread>
 #include <utility>
 
@@ -52,6 +57,15 @@ bool s_boot_requested = false;
 bool s_stop_requested = false;
 bool s_vm_active = false;
 std::condition_variable s_vm_finished;
+
+JavaVM* s_jvm = nullptr;
+// The CPU thread's JNIEnv, valid for the life of the process because that thread never exits.
+JNIEnv* s_cpu_env = nullptr;
+// The app object told when the session ends. Guarded by s_cpu_mutex.
+jobject s_session_listener = nullptr;
+
+std::mutex s_error_mutex;
+std::string s_last_core_error;
 
 int androidLogPriority(LOGLEVEL level) {
     switch (level) {
@@ -128,14 +142,22 @@ bool initialize(const std::string& data_dir, const std::string& resources_dir) {
     return true;
 }
 
-// Boots with no disc, which runs the BIOS to its menu, and runs the VM until something stops it.
-void runVm() {
+std::string takeLastCoreError() {
+    std::lock_guard lock(s_error_mutex);
+    return std::exchange(s_last_core_error, {});
+}
+
+// Boots with no disc, which runs the BIOS to its menu, and runs the VM until something stops it. Returns why the VM
+// could not start (possibly empty, when the core gave no reason), or nothing when it started.
+std::optional<std::string> runVm() {
     VMManager::ApplySettings();
     VMBootParameters params;
     params.source_type = CDVD_SourceType::NoDisc;
-    if (VMManager::Initialize(params) != VMBootResult::StartupSuccess) {
-        __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, "The VM failed to start");
-        return;
+    Error error;
+    if (VMManager::Initialize(params, &error) != VMBootResult::StartupSuccess) {
+        std::string reason = error.IsValid() ? error.GetDescription() : takeLastCoreError();
+        __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, "The VM failed to start: %s", reason.c_str());
+        return reason;
     }
     {
         std::lock_guard lock(s_cpu_mutex);
@@ -143,10 +165,33 @@ void runVm() {
     }
     while (VMManager::GetState() == VMState::Running) VMManager::Execute();
     VMManager::Shutdown(false);
+    return std::nullopt;
+}
+
+// Tells the app the session is over. A VM that stops without the app asking has failed, and the reason is the last
+// error the core reported. Called with s_cpu_mutex held, so the listener must only hand the news to another thread.
+void notifySessionEnded(const std::optional<std::string>& boot_failure) {
+    if (!s_session_listener) return;
+    const bool failed = boot_failure.has_value() || !s_stop_requested;
+    const std::string failure = boot_failure.value_or(failed ? takeLastCoreError() : std::string());
+    jclass listener_class = s_cpu_env->GetObjectClass(s_session_listener);
+    jmethodID on_ended = s_cpu_env->GetMethodID(listener_class, "onSessionEnded", "(ZLjava/lang/String;)V");
+    jstring reason = s_cpu_env->NewStringUTF(failure.c_str());
+    s_cpu_env->CallVoidMethod(s_session_listener, on_ended, failed, reason);
+    // A pending exception would abort the next JNI call; log it to logcat and go on.
+    if (s_cpu_env->ExceptionCheck()) {
+        s_cpu_env->ExceptionDescribe();
+        s_cpu_env->ExceptionClear();
+    }
+    s_cpu_env->DeleteLocalRef(reason);
+    s_cpu_env->DeleteLocalRef(listener_class);
+    s_cpu_env->DeleteGlobalRef(s_session_listener);
+    s_session_listener = nullptr;
 }
 
 void cpuThreadMain() {
     s_cpu_thread_id = std::this_thread::get_id();
+    s_jvm->AttachCurrentThread(&s_cpu_env, nullptr);
     if (!VMManager::Internal::CPUThreadInitialize()) {
         __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, "The CPU thread failed to initialize");
         return;
@@ -160,10 +205,12 @@ void cpuThreadMain() {
         }
         Host::PumpMessagesOnCPUThread();
         if (!boot) continue;
-        runVm();
+        takeLastCoreError();
+        const std::optional<std::string> boot_failure = runVm();
         // Run what arrived during shutdown, so no blocking caller waits forever.
         Host::PumpMessagesOnCPUThread();
         std::lock_guard lock(s_cpu_mutex);
+        notifySessionEnded(boot_failure);
         s_vm_active = false;
         s_vm_finished.notify_all();
     }
@@ -180,14 +227,17 @@ void setWindow(ANativeWindow* window) {
     s_window.surface_height = static_cast<u32>(ANativeWindow_getHeight(window));
 }
 
-// Takes ownership of the window. A second start while a VM runs is ignored, so the VM never loses its window.
-void startSession(ANativeWindow* window) {
+// Takes ownership of the window and of the listener's global ref. A second start while a VM runs is ignored, so the
+// VM never loses its window.
+void startSession(ANativeWindow* window, JNIEnv* env, jobject listener) {
     std::lock_guard lock(s_cpu_mutex);
     if (s_vm_active) {
         ANativeWindow_release(window);
+        env->DeleteGlobalRef(listener);
         return;
     }
     setWindow(window);
+    s_session_listener = listener;
     s_vm_active = true;
     s_boot_requested = true;
     s_stop_requested = false;
@@ -211,6 +261,11 @@ void stopSession() {
 }
 
 } // namespace
+
+void recordCoreError(std::string_view message) {
+    std::lock_guard lock(s_error_mutex);
+    s_last_core_error = message;
+}
 
 std::optional<WindowInfo> Host::AcquireRenderWindow(bool) {
     std::lock_guard lock(s_window_mutex);
@@ -265,6 +320,9 @@ void Host::RequestVMShutdown(bool, bool, bool) {
 
 extern "C" JNIEXPORT jboolean JNICALL Java_io_github_lucaaszsx_betteraethersx2_runtime_NativeRuntime_nativeInitialize(
     JNIEnv* env, jclass, jstring data_dir, jstring resources_dir) {
+    // Taken here rather than in a JNI_OnLoad of our own: libbax.so pulls in libSDL3.so, and ART runs the first
+    // JNI_OnLoad it finds through libbax.so, which must stay SDL's so SDL learns the JavaVM.
+    env->GetJavaVM(&s_jvm);
     const char* data_chars = env->GetStringUTFChars(data_dir, nullptr);
     const char* resources_chars = env->GetStringUTFChars(resources_dir, nullptr);
     const bool initialized = initialize(data_chars, resources_chars);
@@ -274,8 +332,8 @@ extern "C" JNIEXPORT jboolean JNICALL Java_io_github_lucaaszsx_betteraethersx2_r
 }
 
 extern "C" JNIEXPORT void JNICALL Java_io_github_lucaaszsx_betteraethersx2_runtime_NativeRuntime_nativeStartSession(
-    JNIEnv* env, jclass, jobject surface) {
-    startSession(ANativeWindow_fromSurface(env, surface));
+    JNIEnv* env, jclass, jobject surface, jobject listener) {
+    startSession(ANativeWindow_fromSurface(env, surface), env, env->NewGlobalRef(listener));
 }
 
 // The session does not survive losing its surface yet: the app stops it and starts a new one later.

@@ -7,6 +7,8 @@ import java.io.File
 class FakeRuntime(
     private val bios: BiosIdentity? = BiosIdentity(region = "USA", version = "2.20"),
 ) : EmulatorRuntime {
+    private var listener: SessionListener? = null
+
     override val coreVersion: String = "0.0.0-fake"
 
     override fun identifyBios(file: File): BiosIdentity? = bios
@@ -16,12 +18,20 @@ class FakeRuntime(
         resourcesDirectory: File,
     ): Boolean = true
 
-    override fun startSession(surface: Surface) = Unit
+    override fun startSession(
+        surface: Surface,
+        listener: SessionListener,
+    ) {
+        this.listener = listener
+    }
 
     override fun resizeSurface(
         width: Int,
         height: Int,
     ) = Unit
 
-    override fun stopSession() = Unit
+    override fun stopSession() {
+        listener?.onSessionEnded(false, "")
+        listener = null
+    }
 }

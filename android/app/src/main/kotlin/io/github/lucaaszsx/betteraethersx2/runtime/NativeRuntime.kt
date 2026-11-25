@@ -17,7 +17,10 @@ class NativeRuntime : EmulatorRuntime {
         resourcesDirectory: File,
     ): Boolean = nativeInitialize(dataDirectory.absolutePath, resourcesDirectory.absolutePath)
 
-    override fun startSession(surface: Surface) = nativeStartSession(surface)
+    override fun startSession(
+        surface: Surface,
+        listener: SessionListener,
+    ) = nativeStartSession(surface, listener)
 
     override fun resizeSurface(
         width: Int,
@@ -45,7 +48,10 @@ class NativeRuntime : EmulatorRuntime {
         ): Boolean
 
         @JvmStatic
-        external fun nativeStartSession(surface: Surface)
+        external fun nativeStartSession(
+            surface: Surface,
+            listener: SessionListener,
+        )
 
         @JvmStatic
         external fun nativeResizeSurface(

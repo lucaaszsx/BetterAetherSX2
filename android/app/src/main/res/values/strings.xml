@@ -10,4 +10,6 @@
     <string name="bios_unknown_dump">This dump does not match any known good BIOS, so it may be damaged. If games fail to start, dump the BIOS again.</string>
     <string name="bios_not_recognized">This file is not a PS2 BIOS. Choose the BIOS file you dumped from your own console.</string>
     <string name="bios_read_failed">Couldn\'t read this file. Choose it again, or copy it to this device first.</string>
+    <string name="session_failed">Couldn\'t run the BIOS. %1$s Import the BIOS again, or choose a different dump if this keeps happening.</string>
+    <string name="session_failed_unknown">Couldn\'t run the BIOS, and the core did not say why. Import the BIOS again, or choose a different dump if this keeps happening.</string>
 </resources>

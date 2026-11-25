@@ -17,8 +17,11 @@ interface EmulatorRuntime {
         resourcesDirectory: File,
     ): Boolean
 
-    // Boots the BIOS to its menu, drawing into the surface.
-    fun startSession(surface: Surface)
+    // Boots the BIOS to its menu, drawing into the surface. The listener hears once when the session ends.
+    fun startSession(
+        surface: Surface,
+        listener: SessionListener,
+    )
 
     fun resizeSurface(
         width: Int,
@@ -27,6 +30,16 @@ interface EmulatorRuntime {
 
     // Stops the session; the surface may be released afterwards.
     fun stopSession()
+}
+
+// Called on the emulator's own thread, so implementations hand the news to the UI thread and return.
+fun interface SessionListener {
+    // failed is false only when the app asked the session to stop. reason is the core's explanation, in English,
+    // and empty when the core gave none.
+    fun onSessionEnded(
+        failed: Boolean,
+        reason: String,
+    )
 }
 
 data class BiosIdentity(

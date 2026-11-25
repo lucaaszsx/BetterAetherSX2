@@ -1,0 +1,24 @@
+diff --git a/pcsx2/VMManager.cpp b/pcsx2/VMManager.cpp
+index 23c8b44..cf7dfad 100644
+--- a/pcsx2/VMManager.cpp
++++ b/pcsx2/VMManager.cpp
+@@ -2287,6 +2287,11 @@ void VMManager::Internal::Throttle()
+ 		return;
+ 	}
+ 
++#ifdef __ANDROID__
++	// On phones, spinning out the rest of the frame costs power and heat on a big core every frame. An absolute
++	// monotonic sleep wakes close enough to the deadline for frame pacing.
++	Threading::SleepUntil(uExpectedEnd);
++#else
+ 	// Conversion of delta from CPU ticks (microseconds) to milliseconds
+ 	const s32 msec = static_cast<s32>((sDeltaTime * -1000) / static_cast<s64>(GetTickFrequency()));
+ 
+@@ -2303,6 +2308,7 @@ void VMManager::Internal::Throttle()
+ 	while (GetCPUTicks() < uExpectedEnd)
+ 	{
+ 	}
++#endif
+ 
+ 	// Finally, set our next frame start to when this one ends
+ 	s_limiter_frame_start = uExpectedEnd;

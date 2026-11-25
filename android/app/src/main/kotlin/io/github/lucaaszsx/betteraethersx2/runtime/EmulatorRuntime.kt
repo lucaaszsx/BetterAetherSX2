@@ -14,6 +14,10 @@ interface EmulatorRuntime {
     // Null when the file is not a PS2 BIOS the core can boot.
     fun identifyBios(file: File): BiosIdentity?
 
+    // Reads a disc image's serial and looks up its title. Null when the file is not a PS2 disc image, or while a
+    // session runs, since the core reads discs through one shared interface.
+    fun identifyGame(uri: String): GameIdentity?
+
     // Points the core at its folders and loads its settings. False when its data files are missing.
     fun initialize(
         dataDirectory: File,
@@ -73,6 +77,12 @@ fun interface SessionListener {
         reason: String,
     )
 }
+
+data class GameIdentity(
+    val serial: String,
+    val title: String,
+    val region: String,
+)
 
 data class BiosIdentity(
     val region: String,

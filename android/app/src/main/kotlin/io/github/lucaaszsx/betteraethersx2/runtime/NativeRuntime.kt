@@ -16,6 +16,11 @@ class NativeRuntime : EmulatorRuntime {
         return BiosIdentity(region, version)
     }
 
+    override fun identifyGame(uri: String): GameIdentity? {
+        val (serial, title, region) = nativeIdentifyGame(uri) ?: return null
+        return GameIdentity(serial, title, region)
+    }
+
     override fun initialize(
         dataDirectory: File,
         resourcesDirectory: File,
@@ -80,6 +85,10 @@ class NativeRuntime : EmulatorRuntime {
         // Returns [region, version], or null when the file is not a BIOS.
         @JvmStatic
         external fun nativeIdentifyBios(path: String): Array<String>?
+
+        // Returns [serial, title, region], or null when the file is not a PS2 disc image.
+        @JvmStatic
+        external fun nativeIdentifyGame(uri: String): Array<String>?
 
         @JvmStatic
         external fun nativeInitialize(

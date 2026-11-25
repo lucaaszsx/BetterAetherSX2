@@ -49,7 +49,8 @@ android {
                         "-DUSE_OPENGL=OFF",
                         "-DUSE_VULKAN=ON",
                     )
-                targets += "bax"
+                // bax_difftest is a device-side test tool; it is built for CI artifacts and never packaged.
+                targets += listOf("bax", "bax_difftest")
             }
         }
     }

@@ -34,4 +34,10 @@ class FakeRuntime(
         listener?.onSessionEnded(false, "")
         listener = null
     }
+
+    override fun setPaused(paused: Boolean) = Unit
+
+    override fun attachSurface(surface: Surface) = Unit
+
+    override fun detachSurface() = Unit
 }

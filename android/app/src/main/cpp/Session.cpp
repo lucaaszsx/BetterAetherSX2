@@ -18,6 +18,8 @@
 #include "pcsx2/ImGui/ImGuiManager.h"
 #include "pcsx2/Input/InputManager.h"
 #include "pcsx2/MTGS.h"
+#include "pcsx2/SIO/Pad/Pad.h"
+#include "pcsx2/SIO/Pad/PadDualshock2.h"
 #include "pcsx2/VMManager.h"
 
 #include <android/log.h>
@@ -315,6 +317,17 @@ void stopSession() {
     s_vm_finished.wait(lock, [] { return !s_vm_active; });
 }
 
+// Input arrives on the UI thread; the pads belong to the CPU thread, which applies it at the next vsync.
+void setPadInput(u32 bind, float value) {
+    if (bind >= PadDualshock2::Inputs::LENGTH) {
+        __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, "Ignored input for unknown pad bind %u", bind);
+        return;
+    }
+    Host::RunOnCPUThread([bind, value] {
+        if (VMManager::HasValidVM()) Pad::SetControllerState(0, bind, value);
+    });
+}
+
 } // namespace
 
 void recordCoreError(std::string_view message) {
@@ -421,4 +434,9 @@ extern "C" JNIEXPORT void JNICALL Java_io_github_lucaaszsx_betteraethersx2_runti
     }
     // The GS may have failed to open, or not opened yet; it picks up the size from the window when it does.
     if (MTGS::IsOpen()) MTGS::ResizeDisplayWindow(static_cast<u32>(width), static_cast<u32>(height), 1.0f);
+}
+
+extern "C" JNIEXPORT void JNICALL Java_io_github_lucaaszsx_betteraethersx2_runtime_NativeRuntime_nativeSetPadInput(
+    JNIEnv*, jclass, jint bind, jfloat value) {
+    setPadInput(static_cast<u32>(bind), value);
 }

@@ -2,6 +2,7 @@ package io.github.lucaaszsx.betteraethersx2.runtime
 
 import android.app.Activity
 import android.view.Surface
+import io.github.lucaaszsx.betteraethersx2.input.PadBind
 import java.io.File
 
 // The UI talks to the emulator only through this interface, so screens can be built and tested against
@@ -43,6 +44,12 @@ interface EmulatorRuntime {
     // Takes the surface away from a running session and returns once the core no longer uses it, so the surface may
     // be released afterwards. The session keeps running without drawing.
     fun detachSurface()
+
+    // Sets one input of the first controller: 0 is released, 1 is fully pressed or fully tilted.
+    fun setPadInput(
+        bind: PadBind,
+        value: Float,
+    )
 }
 
 // Called on the emulator's own thread, so implementations hand the news to the UI thread and return.

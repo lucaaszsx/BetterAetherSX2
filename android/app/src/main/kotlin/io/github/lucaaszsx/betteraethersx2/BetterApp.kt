@@ -12,14 +12,18 @@ import java.io.InputStream
 class BetterApp : Application() {
     val runtime: EmulatorRuntime by lazy { NativeRuntime() }
 
-    // Extracts the core's resources if this install has not done so yet, then initializes the core.
-    // Runs on a background thread: the first extraction copies several megabytes.
-    fun prepareRuntime(): Boolean {
+    // The core initializes once per process and aborts if asked again. A new library screen in the same process,
+    // for example after returning from the launcher while a game runs, gets the first result.
+    private val runtimeReady: Boolean by lazy {
         val installStamp = packageManager.getPackageInfo(packageName, 0).lastUpdateTime
         val resources = filesDir.resolve("resources")
         CoreResources(AssetSource(assets), resources).install(installStamp)
-        return runtime.initialize(filesDir, resources)
+        runtime.initialize(filesDir, resources)
     }
+
+    // Extracts the core's resources if this install has not done so yet, then initializes the core.
+    // Runs on a background thread: the first extraction copies several megabytes.
+    fun prepareRuntime(): Boolean = runtimeReady
 
     private class AssetSource(
         private val assets: AssetManager,

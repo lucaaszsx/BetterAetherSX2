@@ -24,11 +24,13 @@ interface EmulatorRuntime {
         resourcesDirectory: File,
     ): Boolean
 
-    // Boots the BIOS to its menu, drawing into the surface. The listener hears once when the session ends. The host is
-    // the activity showing the game, which the audio output needs until the session stops.
+    // Boots the game, a disc image URI, or the BIOS alone when it is null, drawing into the surface. The listener hears
+    // once when the session ends. The host is the activity showing the game, which the audio output needs until the
+    // session stops.
     fun startSession(
         host: Activity,
         surface: Surface,
+        game: String?,
         listener: SessionListener,
     )
 

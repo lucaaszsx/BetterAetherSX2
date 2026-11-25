@@ -1,6 +1,7 @@
 package io.github.lucaaszsx.betteraethersx2.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -44,6 +45,7 @@ fun LibraryScreen(
     onChooseFolder: () -> Unit,
     onImportBios: () -> Unit,
     onStartBios: () -> Unit,
+    onPlayGame: (Game) -> Unit,
 ) {
     Column(
         modifier =
@@ -72,7 +74,7 @@ fun LibraryScreen(
         if (coreReady == false) Message(stringResource(R.string.core_not_ready), MaterialTheme.colorScheme.error)
         if (sessionFailure != null) Message(sessionFailureMessage(sessionFailure), MaterialTheme.colorScheme.error)
         if (biosImport != null) Message(biosImportMessage(biosImport), MaterialTheme.colorScheme.onBackground)
-        Box(modifier = Modifier.weight(1f)) { GameLibrary(library) }
+        Box(modifier = Modifier.weight(1f)) { GameLibrary(library, onPlayGame) }
         Text(
             text = stringResource(R.string.core_version, coreVersion),
             style = MaterialTheme.typography.labelSmall,
@@ -82,7 +84,10 @@ fun LibraryScreen(
 }
 
 @Composable
-private fun GameLibrary(library: LibraryState) {
+private fun GameLibrary(
+    library: LibraryState,
+    onPlayGame: (Game) -> Unit,
+) {
     when (library) {
         LibraryState.NoFolder -> {
             Message(stringResource(R.string.library_empty), MaterialTheme.colorScheme.onBackground)
@@ -100,22 +105,28 @@ private fun GameLibrary(library: LibraryState) {
         }
 
         is LibraryState.Loaded -> {
-            GameList(library.games)
+            GameList(library.games, onPlayGame)
         }
     }
 }
 
 @Composable
-private fun GameList(games: List<Game>) {
+private fun GameList(
+    games: List<Game>,
+    onPlayGame: (Game) -> Unit,
+) {
     if (games.isEmpty()) return Message(stringResource(R.string.folder_empty), MaterialTheme.colorScheme.onBackground)
     LazyColumn(modifier = Modifier.fillMaxSize()) {
-        items(games, key = { it.uri }) { game -> GameRow(game) }
+        items(games, key = { it.uri }) { game -> GameRow(game, onClick = { onPlayGame(game) }) }
     }
 }
 
 @Composable
-private fun GameRow(game: Game) {
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = GameRowPadding)) {
+private fun GameRow(
+    game: Game,
+    onClick: () -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = GameRowPadding)) {
         Text(
             text = game.identity.title,
             style = MaterialTheme.typography.bodyLarge,

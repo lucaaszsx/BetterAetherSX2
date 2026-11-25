@@ -27,6 +27,7 @@ class FakeRuntime(
     override fun startSession(
         host: Activity,
         surface: Surface,
+        game: String?,
         listener: SessionListener,
     ) {
         this.listener = listener

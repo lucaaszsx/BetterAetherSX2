@@ -14,6 +14,11 @@ style:
             -   value: 'TODO:'
                 reason: 'Write TODO(#issue) with an issue ID.'
 
+complexity:
+    # A screen takes its state and callbacks as parameters; grouping them into a holder would only rename them.
+    LongParameterList:
+        ignoreAnnotated: ['Composable']
+
 naming:
     # Composable functions are named like types.
     FunctionNaming:

@@ -4,6 +4,8 @@
     <string name="library_empty">No games yet. Choose the folder that holds your game files.</string>
     <string name="core_version">Core %1$s</string>
     <string name="import_bios">Import BIOS</string>
+    <string name="start_bios">Start BIOS</string>
+    <string name="core_not_ready">Couldn\'t start the emulator because some of its files are missing. Reinstall the app.</string>
     <string name="bios_recognized">BIOS recognized: %1$s, v%2$s</string>
     <string name="bios_unknown_dump">This dump does not match any known good BIOS, so it may be damaged. If games fail to start, dump the BIOS again.</string>
     <string name="bios_not_recognized">This file is not a PS2 BIOS. Choose the BIOS file you dumped from your own console.</string>

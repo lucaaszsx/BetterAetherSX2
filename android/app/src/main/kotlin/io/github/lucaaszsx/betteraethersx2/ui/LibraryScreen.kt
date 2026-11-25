@@ -20,6 +20,7 @@ import io.github.lucaaszsx.betteraethersx2.bios.BiosImportResult
 
 private val ScreenPadding = 24.dp
 private val LineSpacing = 12.dp
+private val PARAGRAPH_BREAK = Regex("""\n\s*\n""")
 
 @Composable
 fun LibraryScreen(
@@ -99,11 +100,11 @@ private fun sessionFailureMessage(reason: String): String {
     return stringResource(R.string.session_failed, sentence)
 }
 
-// The core's messages are fragments without a final period; the app's strings place them as a whole sentence.
-// Null when there is no reason to show.
+// The core's messages are often fragments without a final period, and some go on with desktop instructions in
+// later paragraphs that do not apply here. The app keeps the first paragraph, as a whole sentence. Null when there
+// is no reason to show.
 internal fun asSentence(reason: String): String? {
-    val trimmed = reason.trim()
-    if (trimmed.isEmpty()) return null
+    val trimmed = reason.split(PARAGRAPH_BREAK).firstOrNull { it.isNotBlank() }?.trim() ?: return null
     return if (trimmed.last() in ".!?") trimmed else "$trimmed."
 }
 

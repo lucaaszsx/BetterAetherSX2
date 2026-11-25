@@ -7,7 +7,10 @@
 #       Another emulator: start the game on the device by hand, then press Enter.
 #
 # Frame timing comes from SurfaceFlinger's timestats for the app's layers, so every emulator is measured alike. This
-# app also logs the core's own metrics (speed, thread usage). Results land in bench/out/<time>-<label>/.
+# app also logs the core's own metrics (speed, thread usage). Needs adb and jq.
+#
+# Results land in bench/out/<time>-<label>/: the raw dumps and summary.json, where a field that is not measured is null.
+# Runs worth keeping, such as baselines, are committed to the bench-results branch.
 
 set -euo pipefail
 
@@ -59,32 +62,70 @@ adb shell dumpsys SurfaceFlinger --timestats -dump > "$out/timestats.txt"
 adb shell dumpsys SurfaceFlinger --timestats -disable > /dev/null
 adb shell dumpsys thermalservice > "$out/thermal.txt"
 adb logcat -d -s BaxBench:I -v raw | grep '^{' > "$out/metrics.jsonl" || true
+# Peak resident memory of the process, in kB.
+adb shell "grep VmHWM /proc/\$(pidof -s $package)/status" > "$out/memory.txt" || true
 if [ "$mode" = app ]; then adb shell input keyevent KEYCODE_BACK; fi
 
-# Frame pacing per layer of the package: frame count, average FPS, and percentiles of the time between presents,
-# read from the present2present histogram ("<ms>ms=<count>" pairs).
-awk -v package="$package" '
-    /layerName = / { layer = $0; ours = index($0, package) > 0 }
-    ours && /totalFrames = |droppedFrames = |averageFPS = / { print layer; print "  " $0 }
+# Frame pacing of the package's busiest layer (the game surface), from its present2present histogram ("<ms>ms=<count>"
+# pairs): frame count, average FPS, p50/p95/p99 of the time between presents, and stutters (presents over 50 ms).
+frames=$(awk -v package="$package" '
+    /layerName = / { ours = index($0, package) > 0 }
+    ours && /averageFPS = / { fps = $3 }
     ours && /present2present histogram/ { histogram = 1; next }
     histogram {
         histogram = 0
         total = 0
-        for (i = 1; i <= NF; i++) { split($i, pair, "ms="); ms[i] = pair[1]; count[i] = pair[2]; total += pair[2] }
-        if (total == 0) next
-        line = "  present2present p50/p95/p99 ms:"
-        for (p = 1; p <= 3; p++) {
-            target = (p == 1 ? 0.50 : p == 2 ? 0.95 : 0.99) * total
-            seen = 0
-            for (i = 1; i <= NF; i++) { seen += count[i]; if (seen >= target) { line = line " " ms[i]; break } }
+        stutters = 0
+        for (i = 1; i <= NF; i++) {
+            split($i, pair, "ms=")
+            ms[i] = pair[1]
+            count[i] = pair[2]
+            total += pair[2]
+            if (pair[1] > 50) stutters += pair[2]
         }
-        print line
+        if (total <= best) next
+        best = total
+        line = "\"frames\":" total ",\"avgFps\":" fps ",\"stutters\":" stutters
+        split("p50 p95 p99", name, " ")
+        split("0.50 0.95 0.99", fraction, " ")
+        for (p = 1; p <= 3; p++) {
+            seen = 0
+            for (i = 1; i <= NF; i++) { seen += count[i]; if (seen >= fraction[p] * total) break }
+            line = line ",\"" name[p] "Ms\":" ms[i]
+        }
     }
-' "$out/timestats.txt" | uniq | tee "$out/summary.txt"
+    END { print (best > 0 ? "{" line "}" : "null") }
+' "$out/timestats.txt")
 
-if [ -s "$out/metrics.jsonl" ]; then
-    awk -F'[:,}]' '{ fps += $2; speed += $4; ee += $12; n++ }
-        END { printf "core: fps %.1f, speed %.1f%%, EE thread %.1f%% over %d samples\n", fps / n, speed / n, ee / n, n }' \
-        "$out/metrics.jsonl" | tee -a "$out/summary.txt"
-fi
+# Average power in mW from current (uA, signed differently per device) and voltage (uV).
+power=$(awk '{ current = $1 < 0 ? -$1 : $1; sum += current * $2 / 1e9; n++ } END { print (n ? sum / n : "null") }' \
+    "$out/power.txt")
+# Highest CPU and skin temperatures at the end of the run, from the HAL's current readings.
+temperature() {
+    grep -o "mValue=[0-9.]*, mType=$1," "$out/thermal.txt" | cut -d= -f2 | cut -d, -f1 | sort -n | tail -n 1 || true
+}
+cpu_temperature=$(temperature 0)
+skin_temperature=$(temperature 3)
+peak_ram=$(grep -o '[0-9]*' "$out/memory.txt" || true)
+version=$(adb shell dumpsys package "$package" | grep -m 1 -o 'versionName=[^ ]*' | cut -d= -f2 || true)
+
+# commit is this repository's HEAD, which in app mode should be the build that is installed.
+jq -n \
+    --arg label "$label" --arg mode "$mode" --arg package "$package" --arg version "$version" \
+    --arg commit "$(git rev-parse HEAD)" --arg target "$target" \
+    --arg device "$(adb shell getprop ro.product.model)" --arg android "$(adb shell getprop ro.build.version.release)" \
+    --argjson seconds "$seconds" --argjson warmup "$warmup" --argjson frames "$frames" --argjson powerMw "$power" \
+    --argjson cpuC "${cpu_temperature:-null}" --argjson skinC "${skin_temperature:-null}" \
+    --argjson peakRamKb "${peak_ram:-null}" \
+    --slurpfile core "$out/metrics.jsonl" '
+    {
+        label: $label, mode: $mode, package: $package, version: $version, commit: $commit, target: $target,
+        device: $device, android: $android, seconds: $seconds, warmup: $warmup,
+        frames: $frames, powerMw: $powerMw, temperatureC: { cpu: $cpuC, skin: $skinC }, peakRamKb: $peakRamKb,
+        cpuUse: null, gpuUse: null,
+        core: (if ($core | length) > 0 then
+            [$core[] | to_entries[]] | group_by(.key) | map({ key: .[0].key, value: (map(.value) | add / length) })
+            | from_entries + { samples: ($core | length) }
+        else null end)
+    }' | tee "$out/summary.json"
 echo "Results in $out"

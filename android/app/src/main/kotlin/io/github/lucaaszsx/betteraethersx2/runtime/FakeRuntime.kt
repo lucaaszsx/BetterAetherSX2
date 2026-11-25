@@ -2,6 +2,7 @@ package io.github.lucaaszsx.betteraethersx2.runtime
 
 import android.app.Activity
 import android.view.Surface
+import io.github.lucaaszsx.betteraethersx2.input.PadBind
 import java.io.File
 
 // Stands in for the native core in UI work and tests. It never emulates anything.
@@ -42,4 +43,9 @@ class FakeRuntime(
     override fun attachSurface(surface: Surface) = Unit
 
     override fun detachSurface() = Unit
+
+    override fun setPadInput(
+        bind: PadBind,
+        value: Float,
+    ) = Unit
 }

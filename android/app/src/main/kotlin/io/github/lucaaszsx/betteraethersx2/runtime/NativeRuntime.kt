@@ -2,6 +2,7 @@ package io.github.lucaaszsx.betteraethersx2.runtime
 
 import android.app.Activity
 import android.view.Surface
+import io.github.lucaaszsx.betteraethersx2.input.PadBind
 import org.libsdl.app.SDL
 import java.io.File
 
@@ -44,6 +45,11 @@ class NativeRuntime : EmulatorRuntime {
     override fun attachSurface(surface: Surface) = nativeAttachSurface(surface)
 
     override fun detachSurface() = nativeDetachSurface()
+
+    override fun setPadInput(
+        bind: PadBind,
+        value: Float,
+    ) = nativeSetPadInput(bind.ordinal, value)
 
     private companion object {
         init {
@@ -90,5 +96,11 @@ class NativeRuntime : EmulatorRuntime {
 
         @JvmStatic
         external fun nativeDetachSurface()
+
+        @JvmStatic
+        external fun nativeSetPadInput(
+            bind: Int,
+            value: Float,
+        )
     }
 }

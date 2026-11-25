@@ -2,13 +2,18 @@ package io.github.lucaaszsx.betteraethersx2
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import android.view.Window
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import io.github.lucaaszsx.betteraethersx2.input.GamepadInput
+import io.github.lucaaszsx.betteraethersx2.input.PadState
 
 // Full-screen game view. The session lives as long as the activity: it starts with the first surface, pauses while
 // the activity is in the background, moves to each new surface, and stops when the activity is destroyed. The
@@ -19,11 +24,12 @@ class GameActivity :
     SurfaceHolder.Callback {
     private val runtime by lazy { (application as BetterApp).runtime }
     private var sessionStarted = false
+    private val gamepad by lazy { GamepadInput(PadState(runtime::setPadInput)) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        hideSystemBars()
+        window.hideSystemBars()
         setContentView(SurfaceView(this).also { it.holder.addCallback(this) })
     }
 
@@ -41,6 +47,11 @@ class GameActivity :
         runtime.stopSession()
         super.onDestroy()
     }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean = gamepad.onKey(event) || super.dispatchKeyEvent(event)
+
+    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean =
+        gamepad.onMotion(event) || super.dispatchGenericMotionEvent(event)
 
     override fun surfaceCreated(holder: SurfaceHolder) {
         if (sessionStarted) return runtime.attachSurface(holder.surface)
@@ -64,16 +75,16 @@ class GameActivity :
         finish()
     }
 
-    private fun hideSystemBars() {
-        WindowCompat.setDecorFitsSystemWindows(window, false)
-        WindowInsetsControllerCompat(window, window.decorView).apply {
-            hide(WindowInsetsCompat.Type.systemBars())
-            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        }
-    }
-
     companion object {
         // Set on the result when the session failed: the core's reason, possibly empty.
         const val EXTRA_FAILURE_REASON = "io.github.lucaaszsx.betteraethersx2.FAILURE_REASON"
+    }
+}
+
+private fun Window.hideSystemBars() {
+    WindowCompat.setDecorFitsSystemWindows(this, false)
+    WindowInsetsControllerCompat(this, decorView).apply {
+        hide(WindowInsetsCompat.Type.systemBars())
+        systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
     }
 }

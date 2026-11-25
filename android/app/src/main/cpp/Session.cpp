@@ -318,13 +318,11 @@ void Host::RequestVMShutdown(bool, bool, bool) {
     Host::RunOnCPUThread([] { VMManager::SetState(VMState::Stopping); });
 }
 
-extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void*) {
-    s_jvm = vm;
-    return JNI_VERSION_1_6;
-}
-
 extern "C" JNIEXPORT jboolean JNICALL Java_io_github_lucaaszsx_betteraethersx2_runtime_NativeRuntime_nativeInitialize(
     JNIEnv* env, jclass, jstring data_dir, jstring resources_dir) {
+    // Taken here rather than in a JNI_OnLoad of our own: libbax.so pulls in libSDL3.so, and ART runs the first
+    // JNI_OnLoad it finds through libbax.so, which must stay SDL's so SDL learns the JavaVM.
+    env->GetJavaVM(&s_jvm);
     const char* data_chars = env->GetStringUTFChars(data_dir, nullptr);
     const char* resources_chars = env->GetStringUTFChars(resources_dir, nullptr);
     const bool initialized = initialize(data_chars, resources_chars);

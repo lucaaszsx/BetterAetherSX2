@@ -29,12 +29,18 @@ warmup=${5:-20}
 out="bench/out/$(date +%Y%m%d-%H%M%S)-$label"
 mkdir -p "$out"
 
+# adb shell hands its arguments to the device's shell as one string. Game URIs keep ' ( ) unencoded, so quote them.
+quote_for_device() {
+    local escaped=${1//\'/\'\\\'\'}
+    printf "'%s'" "$escaped"
+}
+
 case $mode in
     app)
         package=$APP_PACKAGE
         adb shell am force-stop "$package"
         adb shell am start -n "$package/.GameActivity" \
-            --es "$package.GAME" "$target" --ez "$package.BENCHMARK" true > /dev/null
+            --es "$package.GAME" "$(quote_for_device "$target")" --ez "$package.BENCHMARK" true > /dev/null
         ;;
     other)
         package=$target
@@ -53,8 +59,8 @@ adb shell dumpsys SurfaceFlinger --timestats -enable -clear > /dev/null
 
 echo "Measuring for ${seconds}s"
 for _ in $(seq "$seconds"); do
-    # Current in microamps and voltage in microvolts, once a second.
-    adb shell cat "$BATTERY/current_now" "$BATTERY/voltage_now" | paste -sd ' ' >> "$out/power.txt"
+    # Current in microamps and voltage in microvolts, once a second. Some devices do not let adb read them.
+    adb shell cat "$BATTERY/current_now" "$BATTERY/voltage_now" 2> /dev/null | paste -sd ' ' >> "$out/power.txt" || true
     sleep 1
 done
 
@@ -97,9 +103,11 @@ frames=$(awk -v package="$package" '
     END { print (best > 0 ? "{" line "}" : "null") }
 ' "$out/timestats.txt")
 
-# Average power in mW from current (uA, signed differently per device) and voltage (uV).
-power=$(awk '{ current = $1 < 0 ? -$1 : $1; sum += current * $2 / 1e9; n++ } END { print (n ? sum / n : "null") }' \
-    "$out/power.txt")
+# Average power in mW from current (uA, signed differently per device) and voltage (uV). It only means the run's draw
+# when the device is not charging.
+power=$(awk 'NF == 2 { current = $1 < 0 ? -$1 : $1; sum += current * $2 / 1e9; n++ }
+    END { print (n ? sum / n : "null") }' "$out/power.txt")
+charging=$(adb shell dumpsys battery | grep -q 'powered: true' && echo true || echo false)
 # Highest CPU and skin temperatures at the end of the run, from the HAL's current readings.
 temperature() {
     grep -o "mValue=[0-9.]*, mType=$1," "$out/thermal.txt" | cut -d= -f2 | cut -d, -f1 | sort -n | tail -n 1 || true
@@ -115,13 +123,15 @@ jq -n \
     --arg commit "$(git rev-parse HEAD)" --arg target "$target" \
     --arg device "$(adb shell getprop ro.product.model)" --arg android "$(adb shell getprop ro.build.version.release)" \
     --argjson seconds "$seconds" --argjson warmup "$warmup" --argjson frames "$frames" --argjson powerMw "$power" \
+    --argjson charging "$charging" \
     --argjson cpuC "${cpu_temperature:-null}" --argjson skinC "${skin_temperature:-null}" \
     --argjson peakRamKb "${peak_ram:-null}" \
     --slurpfile core "$out/metrics.jsonl" '
     {
         label: $label, mode: $mode, package: $package, version: $version, commit: $commit, target: $target,
         device: $device, android: $android, seconds: $seconds, warmup: $warmup,
-        frames: $frames, powerMw: $powerMw, temperatureC: { cpu: $cpuC, skin: $skinC }, peakRamKb: $peakRamKb,
+        frames: $frames, powerMw: $powerMw, charging: $charging, temperatureC: { cpu: $cpuC, skin: $skinC },
+        peakRamKb: $peakRamKb,
         cpuUse: null, gpuUse: null,
         core: (if ($core | length) > 0 then
             [$core[] | to_entries[]] | group_by(.key) | map({ key: .[0].key, value: (map(.value) | add / length) })

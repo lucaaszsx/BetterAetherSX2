@@ -3,6 +3,7 @@ package io.github.lucaaszsx.betteraethersx2.runtime
 import android.app.Activity
 import android.view.Surface
 import io.github.lucaaszsx.betteraethersx2.input.PadBind
+import io.github.lucaaszsx.betteraethersx2.input.TouchAction
 import java.io.File
 
 // The UI talks to the emulator only through this interface, so screens can be built and tested against
@@ -27,9 +28,11 @@ interface EmulatorRuntime {
         listener: SessionListener,
     )
 
+    // Also lays out the on-screen controls for the new size; density is pixels per dp.
     fun resizeSurface(
         width: Int,
         height: Int,
+        density: Float,
     )
 
     // Stops the session; the surface may be released afterwards.
@@ -49,6 +52,14 @@ interface EmulatorRuntime {
     fun setPadInput(
         bind: PadBind,
         value: Float,
+    )
+
+    // A finger on the game surface, in surface pixels. The core decides which on-screen control it presses.
+    fun touch(
+        action: TouchAction,
+        pointerId: Int,
+        x: Float,
+        y: Float,
     )
 }
 

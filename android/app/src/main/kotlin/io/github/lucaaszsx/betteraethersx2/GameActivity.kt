@@ -14,6 +14,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import io.github.lucaaszsx.betteraethersx2.input.GamepadInput
 import io.github.lucaaszsx.betteraethersx2.input.PadState
+import io.github.lucaaszsx.betteraethersx2.input.TouchInput
 
 // Full-screen game view. The session lives as long as the activity: it starts with the first surface, pauses while
 // the activity is in the background, moves to each new surface, and stops when the activity is destroyed. The
@@ -25,12 +26,17 @@ class GameActivity :
     private val runtime by lazy { (application as BetterApp).runtime }
     private var sessionStarted = false
     private val gamepad by lazy { GamepadInput(PadState(runtime::setPadInput)) }
+    private val touch by lazy { TouchInput(runtime::touch) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.hideSystemBars()
-        setContentView(SurfaceView(this).also { it.holder.addCallback(this) })
+        val surface = SurfaceView(this)
+        surface.holder.addCallback(this)
+        // The game draws its own touch controls, so the view only hands the fingers over.
+        surface.setOnTouchListener { _, event -> true.also { touch.onTouch(event) } }
+        setContentView(surface)
     }
 
     override fun onResume() {
@@ -66,7 +72,7 @@ class GameActivity :
         format: Int,
         width: Int,
         height: Int,
-    ) = runtime.resizeSurface(width, height)
+    ) = runtime.resizeSurface(width, height, resources.displayMetrics.density)
 
     override fun surfaceDestroyed(holder: SurfaceHolder) = runtime.detachSurface()
 

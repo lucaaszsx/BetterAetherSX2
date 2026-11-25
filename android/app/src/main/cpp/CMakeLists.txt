@@ -10,6 +10,7 @@ add_library(bax SHARED
     AndroidHost.cpp
     NativeRuntime.cpp
     Session.cpp
+    TouchControls.cpp
 )
 
 target_include_directories(bax PRIVATE

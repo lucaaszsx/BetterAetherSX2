@@ -3,6 +3,7 @@ package io.github.lucaaszsx.betteraethersx2.runtime
 import android.app.Activity
 import android.view.Surface
 import io.github.lucaaszsx.betteraethersx2.input.PadBind
+import io.github.lucaaszsx.betteraethersx2.input.TouchAction
 import org.libsdl.app.SDL
 import java.io.File
 
@@ -33,7 +34,11 @@ class NativeRuntime : EmulatorRuntime {
     override fun resizeSurface(
         width: Int,
         height: Int,
-    ) = nativeResizeSurface(width, height)
+        density: Float,
+    ) {
+        nativeResizeSurface(width, height)
+        nativeSetTouchLayout(width, height, density)
+    }
 
     override fun stopSession() {
         nativeStopSession()
@@ -51,6 +56,15 @@ class NativeRuntime : EmulatorRuntime {
         value: Float,
     ) = nativeSetPadInput(bind.ordinal, value)
 
+    override fun touch(
+        action: TouchAction,
+        pointerId: Int,
+        x: Float,
+        y: Float,
+    ) = nativeTouch(action.ordinal, pointerId, x, y)
+
+    // One external function per JNI entry point in libbax.so; splitting them would only scatter the native surface.
+    @Suppress("TooManyFunctions")
     private companion object {
         init {
             System.loadLibrary("bax")
@@ -101,6 +115,21 @@ class NativeRuntime : EmulatorRuntime {
         external fun nativeSetPadInput(
             bind: Int,
             value: Float,
+        )
+
+        @JvmStatic
+        external fun nativeSetTouchLayout(
+            width: Int,
+            height: Int,
+            density: Float,
+        )
+
+        @JvmStatic
+        external fun nativeTouch(
+            action: Int,
+            pointerId: Int,
+            x: Float,
+            y: Float,
         )
     }
 }

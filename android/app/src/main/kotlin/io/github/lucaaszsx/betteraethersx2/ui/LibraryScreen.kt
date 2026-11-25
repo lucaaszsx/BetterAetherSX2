@@ -28,6 +28,8 @@ fun LibraryScreen(
     coreReady: Boolean?,
     hasBios: Boolean,
     biosImport: BiosImportResult?,
+    // The core's reason the last session failed, or null when it did not fail.
+    sessionFailure: String?,
     onImportBios: () -> Unit,
     onStartBios: () -> Unit,
 ) {
@@ -59,6 +61,14 @@ fun LibraryScreen(
                 textAlign = TextAlign.Center,
             )
         }
+        if (sessionFailure != null) {
+            Text(
+                text = sessionFailureMessage(sessionFailure),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+                textAlign = TextAlign.Center,
+            )
+        }
         if (biosImport != null) {
             Text(
                 text = biosImportMessage(biosImport),
@@ -82,6 +92,20 @@ private fun biosImportMessage(result: BiosImportResult): String =
         BiosImportResult.NotABios -> stringResource(R.string.bios_not_recognized)
         is BiosImportResult.ReadFailed -> stringResource(R.string.bios_read_failed)
     }
+
+@Composable
+private fun sessionFailureMessage(reason: String): String {
+    val sentence = asSentence(reason) ?: return stringResource(R.string.session_failed_unknown)
+    return stringResource(R.string.session_failed, sentence)
+}
+
+// The core's messages are fragments without a final period; the app's strings place them as a whole sentence.
+// Null when there is no reason to show.
+internal fun asSentence(reason: String): String? {
+    val trimmed = reason.trim()
+    if (trimmed.isEmpty()) return null
+    return if (trimmed.last() in ".!?") trimmed else "$trimmed."
+}
 
 @Composable
 private fun recognizedBiosMessage(result: BiosImportResult.Recognized): String {

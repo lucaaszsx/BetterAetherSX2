@@ -4,6 +4,7 @@
 // that tells the core the feature is unavailable. The callbacks tied to the session (window, CPU thread) live in
 // Session.cpp.
 
+#include "Session.h"
 #include "common/Assertions.h"
 #include "common/HTTPDownloader.h"
 #include "common/ProgressCallback.h"
@@ -62,6 +63,7 @@ void Host::ReportInfoAsync(const std::string_view title, const std::string_view 
 
 void Host::ReportErrorAsync(const std::string_view title, const std::string_view message) {
     logMessage(ANDROID_LOG_ERROR, title, message);
+    recordCoreError(message);
 }
 
 void Host::OpenURL(const std::string_view) {}

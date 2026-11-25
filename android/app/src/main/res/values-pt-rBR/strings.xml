@@ -9,4 +9,6 @@
     <string name="bios_unknown_dump">Este dump não corresponde a nenhuma BIOS conhecida e pode estar danificado. Se os jogos não iniciarem, extraia a BIOS de novo.</string>
     <string name="bios_not_recognized">Este arquivo não é uma BIOS de PS2. Escolha o arquivo da BIOS que você extraiu do seu próprio console.</string>
     <string name="bios_read_failed">Não foi possível ler este arquivo. Escolha de novo ou copie o arquivo para este aparelho antes.</string>
+    <string name="session_failed">Não foi possível executar a BIOS. %1$s Importe a BIOS de novo ou, se continuar acontecendo, escolha outro dump.</string>
+    <string name="session_failed_unknown">Não foi possível executar a BIOS, e o núcleo não informou o motivo. Importe a BIOS de novo ou, se continuar acontecendo, escolha outro dump.</string>
 </resources>

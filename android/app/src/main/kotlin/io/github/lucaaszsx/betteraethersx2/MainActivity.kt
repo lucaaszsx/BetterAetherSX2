@@ -41,6 +41,7 @@ class MainActivity : ComponentActivity() {
             var biosImport by remember { mutableStateOf<BiosImportResult?>(null) }
             var hasBios by remember { mutableStateOf(biosDirectory.list().orEmpty().isNotEmpty()) }
             var coreReady by remember { mutableStateOf<Boolean?>(null) }
+            var sessionFailure by remember { mutableStateOf<String?>(null) }
             val scope = rememberCoroutineScope()
             LaunchedEffect(Unit) { coreReady = withContext(Dispatchers.IO) { app.prepareRuntime() } }
             val pickBios =
@@ -52,14 +53,22 @@ class MainActivity : ComponentActivity() {
                         if (result is BiosImportResult.Recognized) hasBios = true
                     }
                 }
+            val startGame =
+                rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+                    sessionFailure = result.data?.getStringExtra(GameActivity.EXTRA_FAILURE_REASON)
+                }
             BetterTheme {
                 LibraryScreen(
                     coreVersion = app.runtime.coreVersion,
                     coreReady = coreReady,
                     hasBios = hasBios,
                     biosImport = biosImport,
+                    sessionFailure = sessionFailure,
                     onImportBios = { pickBios.launch(arrayOf("*/*")) },
-                    onStartBios = { startActivity(Intent(this, GameActivity::class.java)) },
+                    onStartBios = {
+                        sessionFailure = null
+                        startGame.launch(Intent(this, GameActivity::class.java))
+                    },
                 )
             }
         }

@@ -63,6 +63,9 @@ object GamepadMapping {
         flat: Float,
     ): List<Pair<PadBind, Float>> {
         val live = if (abs(value) <= flat) 0f else value
-        return listOf(binds.negative to (-live).coerceAtLeast(0f), binds.positive to live.coerceAtLeast(0f))
+        // Written out rather than with coerceAtLeast, which would turn a centered axis into -0 on the negative side.
+        val negative = if (live < 0f) -live else 0f
+        val positive = if (live > 0f) live else 0f
+        return listOf(binds.negative to negative, binds.positive to positive)
     }
 }

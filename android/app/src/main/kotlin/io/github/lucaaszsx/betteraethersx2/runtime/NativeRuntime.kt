@@ -29,6 +29,12 @@ class NativeRuntime : EmulatorRuntime {
 
     override fun stopSession() = nativeStopSession()
 
+    override fun setPaused(paused: Boolean) = nativeSetPaused(paused)
+
+    override fun attachSurface(surface: Surface) = nativeAttachSurface(surface)
+
+    override fun detachSurface() = nativeDetachSurface()
+
     private companion object {
         init {
             System.loadLibrary("bax")
@@ -61,5 +67,14 @@ class NativeRuntime : EmulatorRuntime {
 
         @JvmStatic
         external fun nativeStopSession()
+
+        @JvmStatic
+        external fun nativeSetPaused(paused: Boolean)
+
+        @JvmStatic
+        external fun nativeAttachSurface(surface: Surface)
+
+        @JvmStatic
+        external fun nativeDetachSurface()
     }
 }

@@ -30,6 +30,16 @@ interface EmulatorRuntime {
 
     // Stops the session; the surface may be released afterwards.
     fun stopSession()
+
+    // Freezes or resumes emulation and sound; the session keeps its state.
+    fun setPaused(paused: Boolean)
+
+    // Gives a running session a new surface after detachSurface.
+    fun attachSurface(surface: Surface)
+
+    // Takes the surface away from a running session and returns once the core no longer uses it, so the surface may
+    // be released afterwards. The session keeps running without drawing.
+    fun detachSurface()
 }
 
 // Called on the emulator's own thread, so implementations hand the news to the UI thread and return.

@@ -10,13 +10,15 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 
-// Full-screen game view. The session lives as long as the surface: it starts when the surface appears and stops
-// when it goes away, so leaving the app ends the session for now. When the session fails, the activity closes and
+// Full-screen game view. The session lives as long as the activity: it starts with the first surface, pauses while
+// the activity is in the background, moves to each new surface, and stops when the activity is destroyed. The
+// manifest keeps rotation and folding from recreating the activity. When the session fails, the activity closes and
 // hands the core's reason back to the screen that opened it.
 class GameActivity :
     ComponentActivity(),
     SurfaceHolder.Callback {
     private val runtime by lazy { (application as BetterApp).runtime }
+    private var sessionStarted = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -25,10 +27,28 @@ class GameActivity :
         setContentView(SurfaceView(this).also { it.holder.addCallback(this) })
     }
 
-    override fun surfaceCreated(holder: SurfaceHolder) =
+    override fun onResume() {
+        super.onResume()
+        runtime.setPaused(false)
+    }
+
+    override fun onPause() {
+        runtime.setPaused(true)
+        super.onPause()
+    }
+
+    override fun onDestroy() {
+        runtime.stopSession()
+        super.onDestroy()
+    }
+
+    override fun surfaceCreated(holder: SurfaceHolder) {
+        if (sessionStarted) return runtime.attachSurface(holder.surface)
+        sessionStarted = true
         runtime.startSession(holder.surface) { failed, reason ->
             if (failed) runOnUiThread { finishWithFailure(reason) }
         }
+    }
 
     override fun surfaceChanged(
         holder: SurfaceHolder,
@@ -37,7 +57,7 @@ class GameActivity :
         height: Int,
     ) = runtime.resizeSurface(width, height)
 
-    override fun surfaceDestroyed(holder: SurfaceHolder) = runtime.stopSession()
+    override fun surfaceDestroyed(holder: SurfaceHolder) = runtime.detachSurface()
 
     private fun finishWithFailure(reason: String) {
         setResult(RESULT_OK, Intent().putExtra(EXTRA_FAILURE_REASON, reason))

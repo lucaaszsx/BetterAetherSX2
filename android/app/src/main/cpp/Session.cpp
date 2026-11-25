@@ -147,6 +147,15 @@ std::string takeLastCoreError() {
     return std::exchange(s_last_core_error, {});
 }
 
+// A paused VM does not reach the per-frame pump, so the queue is drained here until a request resumes or stops it.
+void waitWhilePaused() {
+    {
+        std::unique_lock lock(s_cpu_mutex);
+        s_cpu_wakeup.wait(lock, [] { return !s_cpu_queue.empty(); });
+    }
+    Host::PumpMessagesOnCPUThread();
+}
+
 // Boots with no disc, which runs the BIOS to its menu, and runs the VM until something stops it. Returns why the VM
 // could not start (possibly empty, when the core gave no reason), or nothing when it started.
 std::optional<std::string> runVm() {
@@ -163,7 +172,15 @@ std::optional<std::string> runVm() {
         std::lock_guard lock(s_cpu_mutex);
         if (!s_stop_requested) VMManager::SetState(VMState::Running);
     }
-    while (VMManager::GetState() == VMState::Running) VMManager::Execute();
+    for (;;) {
+        const VMState state = VMManager::GetState();
+        if (state == VMState::Running)
+            VMManager::Execute();
+        else if (state == VMState::Paused)
+            waitWhilePaused();
+        else
+            break;
+    }
     VMManager::Shutdown(false);
     return std::nullopt;
 }
@@ -216,15 +233,53 @@ void cpuThreadMain() {
     }
 }
 
-void setWindow(ANativeWindow* window) {
+// Replaces the window the GS draws into and returns the previous one, which the caller releases once the GS no longer
+// uses it. Without a window the GS runs surfaceless: it keeps its state and presents nothing.
+ANativeWindow* exchangeWindow(ANativeWindow* window) {
     std::lock_guard lock(s_window_mutex);
-    if (s_window.window_handle) ANativeWindow_release(static_cast<ANativeWindow*>(s_window.window_handle));
+    ANativeWindow* previous = static_cast<ANativeWindow*>(s_window.window_handle);
     s_window = {};
-    if (!window) return;
+    if (!window) return previous;
     s_window.type = WindowInfo::Type::Android;
     s_window.window_handle = window;
     s_window.surface_width = static_cast<u32>(ANativeWindow_getWidth(window));
     s_window.surface_height = static_cast<u32>(ANativeWindow_getHeight(window));
+    return previous;
+}
+
+void releaseWindow(ANativeWindow* window) {
+    if (window) ANativeWindow_release(window);
+}
+
+// Moves the GS to the current window. With block, returns once the GS has dropped the old one.
+void updateGsWindow(bool block) {
+    Host::RunOnCPUThread(
+        [block] {
+            if (!MTGS::IsOpen()) return;
+            MTGS::UpdateDisplayWindow();
+            if (block) MTGS::WaitGS(false);
+        },
+        block);
+}
+
+// Android forbids touching a surface after surfaceDestroyed returns, so this waits for the GS to let go of it.
+void detachSurface() {
+    ANativeWindow* previous = exchangeWindow(nullptr);
+    if (!previous) return;
+    updateGsWindow(true);
+    releaseWindow(previous);
+}
+
+void attachSurface(ANativeWindow* window) {
+    releaseWindow(exchangeWindow(window));
+    updateGsWindow(false);
+}
+
+// The app pauses the VM while it is in the background; requests made before the VM exists do nothing.
+void setPaused(bool paused) {
+    Host::RunOnCPUThread([paused] {
+        if (VMManager::HasValidVM()) VMManager::SetPaused(paused);
+    });
 }
 
 // Takes ownership of the window and of the listener's global ref. A second start while a VM runs is ignored, so the
@@ -236,7 +291,7 @@ void startSession(ANativeWindow* window, JNIEnv* env, jobject listener) {
         env->DeleteGlobalRef(listener);
         return;
     }
-    setWindow(window);
+    releaseWindow(exchangeWindow(window));
     s_session_listener = listener;
     s_vm_active = true;
     s_boot_requested = true;
@@ -269,7 +324,6 @@ void recordCoreError(std::string_view message) {
 
 std::optional<WindowInfo> Host::AcquireRenderWindow(bool) {
     std::lock_guard lock(s_window_mutex);
-    if (!s_window.window_handle) return std::nullopt;
     return s_window;
 }
 
@@ -336,11 +390,25 @@ extern "C" JNIEXPORT void JNICALL Java_io_github_lucaaszsx_betteraethersx2_runti
     startSession(ANativeWindow_fromSurface(env, surface), env, env->NewGlobalRef(listener));
 }
 
-// The session does not survive losing its surface yet: the app stops it and starts a new one later.
 extern "C" JNIEXPORT void JNICALL
 Java_io_github_lucaaszsx_betteraethersx2_runtime_NativeRuntime_nativeStopSession(JNIEnv*, jclass) {
     stopSession();
-    setWindow(nullptr);
+    releaseWindow(exchangeWindow(nullptr));
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_io_github_lucaaszsx_betteraethersx2_runtime_NativeRuntime_nativeSetPaused(JNIEnv*, jclass, jboolean paused) {
+    setPaused(paused);
+}
+
+extern "C" JNIEXPORT void JNICALL Java_io_github_lucaaszsx_betteraethersx2_runtime_NativeRuntime_nativeAttachSurface(
+    JNIEnv* env, jclass, jobject surface) {
+    attachSurface(ANativeWindow_fromSurface(env, surface));
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_io_github_lucaaszsx_betteraethersx2_runtime_NativeRuntime_nativeDetachSurface(JNIEnv*, jclass) {
+    detachSurface();
 }
 
 extern "C" JNIEXPORT void JNICALL Java_io_github_lucaaszsx_betteraethersx2_runtime_NativeRuntime_nativeResizeSurface(

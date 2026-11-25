@@ -16,6 +16,12 @@ class SessionFailureMessageTest {
     }
 
     @Test
+    fun keepsOnlyTheFirstParagraph() {
+        val reason = "PCSX2 requires a PlayStation 2 BIOS in order to run.\n\nFor legal reasons, obtain it yourself."
+        assertEquals("PCSX2 requires a PlayStation 2 BIOS in order to run.", asSentence(reason))
+    }
+
+    @Test
     fun hasNoSentenceForAnEmptyReason() {
         assertNull(asSentence(" "))
     }

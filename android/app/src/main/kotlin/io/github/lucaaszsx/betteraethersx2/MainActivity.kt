@@ -4,11 +4,13 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.provider.OpenableColumns
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -18,6 +20,11 @@ import androidx.compose.runtime.setValue
 import io.github.lucaaszsx.betteraethersx2.bios.BiosImportResult
 import io.github.lucaaszsx.betteraethersx2.bios.BiosImporter
 import io.github.lucaaszsx.betteraethersx2.bios.KnownBiosDumps
+import io.github.lucaaszsx.betteraethersx2.library.GameCache
+import io.github.lucaaszsx.betteraethersx2.library.GameFolder
+import io.github.lucaaszsx.betteraethersx2.library.GameScanner
+import io.github.lucaaszsx.betteraethersx2.library.LibraryState
+import io.github.lucaaszsx.betteraethersx2.library.TreeDocumentSource
 import io.github.lucaaszsx.betteraethersx2.ui.BetterTheme
 import io.github.lucaaszsx.betteraethersx2.ui.LibraryScreen
 import kotlinx.coroutines.Dispatchers
@@ -33,6 +40,8 @@ class MainActivity : ComponentActivity() {
         val knownDumps = assets.open("known-bios.txt").use(KnownBiosDumps::parse)
         BiosImporter(biosDirectory, app.runtime, knownDumps)
     }
+    private val gameFolder by lazy { GameFolder(this) }
+    private val gameCache by lazy { GameCache(filesDir.resolve("games.tsv")) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -57,13 +66,16 @@ class MainActivity : ComponentActivity() {
                 rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
                     sessionFailure = result.data?.getStringExtra(GameActivity.EXTRA_FAILURE_REASON)
                 }
+            val (library, chooseFolder) = rememberLibrary(coreReady)
             BetterTheme {
                 LibraryScreen(
                     coreVersion = app.runtime.coreVersion,
                     coreReady = coreReady,
                     hasBios = hasBios,
+                    library = library,
                     biosImport = biosImport,
                     sessionFailure = sessionFailure,
+                    onChooseFolder = chooseFolder,
                     onImportBios = { pickBios.launch(arrayOf("*/*")) },
                     onStartBios = {
                         sessionFailure = null
@@ -71,6 +83,43 @@ class MainActivity : ComponentActivity() {
                     },
                 )
             }
+        }
+    }
+
+    // The game list for the chosen folder, scanned once the core is ready, and the action that picks a folder.
+    @Composable
+    private fun rememberLibrary(coreReady: Boolean?): Pair<LibraryState, () -> Unit> {
+        var folder by remember { mutableStateOf(gameFolder.uri) }
+        var library by remember { mutableStateOf<LibraryState>(LibraryState.NoFolder) }
+        LaunchedEffect(folder, coreReady) {
+            val uri = folder
+            if (coreReady != true || uri == null) return@LaunchedEffect
+            library = LibraryState.Scanning(0)
+            library =
+                withContext(Dispatchers.IO) { scanLibrary(uri) { found -> library = LibraryState.Scanning(found) } }
+        }
+        val pickFolder =
+            rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+                if (uri == null) return@rememberLauncherForActivityResult
+                gameFolder.choose(uri)
+                folder = uri
+            }
+        return library to { pickFolder.launch(gameFolder.uri) }
+    }
+
+    private fun scanLibrary(
+        folder: Uri,
+        onFound: (Int) -> Unit,
+    ): LibraryState {
+        if (!gameFolder.hasAccess(folder)) return LibraryState.AccessLost
+        val scanner = GameScanner(TreeDocumentSource(contentResolver, folder), app.runtime::identifyGame)
+        return try {
+            val (games, entries) = scanner.scan(gameCache.load(), onFound)
+            gameCache.save(entries)
+            LibraryState.Loaded(games)
+        } catch (error: SecurityException) {
+            Log.w(TAG, "Lost access to $folder", error)
+            LibraryState.AccessLost
         }
     }
 
@@ -90,5 +139,9 @@ class MainActivity : ComponentActivity() {
             if (cursor.moveToFirst()) return cursor.getString(0) ?: fallback
         }
         return fallback
+    }
+
+    private companion object {
+        const val TAG = "BetterAetherSX2"
     }
 }

@@ -12,4 +12,13 @@
     <string name="bios_read_failed">Couldn\'t read this file. Choose it again, or copy it to this device first.</string>
     <string name="session_failed">Couldn\'t run the BIOS. %1$s Import the BIOS again, or choose a different dump if this keeps happening.</string>
     <string name="session_failed_unknown">Couldn\'t run the BIOS, and the core did not say why. Import the BIOS again, or choose a different dump if this keeps happening.</string>
+    <string name="choose_game_folder">Choose game folder</string>
+    <string name="change_game_folder">Change game folder</string>
+    <string name="folder_access_lost">Couldn\'t open the game folder. Android removed access to it. Choose the folder again.</string>
+    <string name="folder_empty">No PS2 games in this folder. Choose the folder that holds your ISO, CHD or CSO files.</string>
+    <string name="game_details" translatable="false">%1$s · %2$s</string>
+    <plurals name="scanning_folder">
+        <item quantity="one">Scanning folder: %1$d game found</item>
+        <item quantity="other">Scanning folder: %1$d games found</item>
+    </plurals>
 </resources>

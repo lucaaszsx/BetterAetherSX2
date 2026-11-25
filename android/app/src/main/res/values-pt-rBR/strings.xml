@@ -11,4 +11,13 @@
     <string name="bios_read_failed">Não foi possível ler este arquivo. Escolha de novo ou copie o arquivo para este aparelho antes.</string>
     <string name="session_failed">Não foi possível executar a BIOS. %1$s Importe a BIOS de novo ou, se continuar acontecendo, escolha outro dump.</string>
     <string name="session_failed_unknown">Não foi possível executar a BIOS, e o núcleo não informou o motivo. Importe a BIOS de novo ou, se continuar acontecendo, escolha outro dump.</string>
+    <string name="choose_game_folder">Escolher pasta de jogos</string>
+    <string name="change_game_folder">Trocar pasta de jogos</string>
+    <string name="folder_access_lost">Não foi possível abrir a pasta de jogos. O Android removeu o acesso a ela. Escolha a pasta de novo.</string>
+    <string name="folder_empty">Nenhum jogo de PS2 nesta pasta. Escolha a pasta onde estão seus arquivos ISO, CHD ou CSO.</string>
+    <plurals name="scanning_folder">
+        <item quantity="one">Verificando a pasta: %1$d jogo encontrado</item>
+        <item quantity="many">Verificando a pasta: %1$d jogos encontrados</item>
+        <item quantity="other">Verificando a pasta: %1$d jogos encontrados</item>
+    </plurals>
 </resources>

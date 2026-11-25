@@ -7,6 +7,7 @@
 //
 // A failure prints the seed and case index, the program and every field that differs, so it can be replayed.
 
+#include "CDVD/CDVDcommon.h"
 #include "DebugTools/Debug.h"
 #include "Memory.h"
 #include "R5900.h"
@@ -50,6 +51,8 @@ bool initializeCore() {
     memSetExtraMemMode(false);
     memBindConditionalHandlers();
     SysMemory::Reset();
+    // cpuReset resets the CDVD drive too, which reads the disc through the current source; there must be one.
+    CDVDsys_ChangeSource(CDVD_SourceType::NoDisc);
     cpuReset();
     return true;
 }

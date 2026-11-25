@@ -1,0 +1,28 @@
+diff --git a/pcsx2/ImGui/ImGuiManager.h b/pcsx2/ImGui/ImGuiManager.h
+index 8b375ac..56e45cf 100644
+--- a/pcsx2/ImGui/ImGuiManager.h
++++ b/pcsx2/ImGui/ImGuiManager.h
+@@ -136,4 +136,9 @@ namespace Host
+ 
+ 	/// Called by ImGuiManager when the cursor leaves a text field.
+ 	void EndTextInput();
++
++#ifdef __ANDROID__
++	/// Draws the on-screen touch controls over the game image, after the other overlays.
++	void DrawTouchControls();
++#endif
+ } // namespace Host
+diff --git a/pcsx2/ImGui/ImGuiOverlays.cpp b/pcsx2/ImGui/ImGuiOverlays.cpp
+index cc9558b..41d9d5d 100644
+--- a/pcsx2/ImGui/ImGuiOverlays.cpp
++++ b/pcsx2/ImGui/ImGuiOverlays.cpp
+@@ -1825,6 +1825,9 @@ void ImGuiManager::RenderOverlays()
+ 	DrawInputsOverlay(scale, margin, spacing);
+ 	if (SaveStateSelectorUI::s_open)
+ 		SaveStateSelectorUI::Draw();
++#ifdef __ANDROID__
++	Host::DrawTouchControls();
++#endif
+ }
+ 
+ std::string SaveStateSelectorUI::GetSaveStateTimestampSummary(const std::time_t& modification_time)

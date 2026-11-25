@@ -1,0 +1,103 @@
+diff --git a/common/WindowInfo.h b/common/WindowInfo.h
+index 4ccad5a..a579698 100644
+--- a/common/WindowInfo.h
++++ b/common/WindowInfo.h
+@@ -15,7 +15,8 @@ struct WindowInfo
+ 		Win32,
+ 		X11,
+ 		Wayland,
+-		MacOS
++		MacOS,
++		Android
+ 	};
+ 
+ 	/// The type of the surface. Surfaceless indicates it will not be displayed on screen at all.
+diff --git a/pcsx2/GS/Renderers/Vulkan/GSDeviceVK.cpp b/pcsx2/GS/Renderers/Vulkan/GSDeviceVK.cpp
+index d3dad7e..e3bc17b 100644
+--- a/pcsx2/GS/Renderers/Vulkan/GSDeviceVK.cpp
++++ b/pcsx2/GS/Renderers/Vulkan/GSDeviceVK.cpp
+@@ -198,6 +198,10 @@ bool GSDeviceVK::SelectInstanceExtensions(ExtensionList* extension_list, const W
+ 	if (wi.type == WindowInfo::Type::MacOS && !SupportsExtension(VK_EXT_METAL_SURFACE_EXTENSION_NAME, true))
+ 		return false;
+ #endif
++#if defined(VK_USE_PLATFORM_ANDROID_KHR)
++	if (wi.type == WindowInfo::Type::Android && !SupportsExtension(VK_KHR_ANDROID_SURFACE_EXTENSION_NAME, true))
++		return false;
++#endif
+ 
+ 	// VK_EXT_debug_utils
+ 	if (enable_debug_utils && !SupportsExtension(VK_EXT_DEBUG_UTILS_EXTENSION_NAME, false))
+diff --git a/pcsx2/GS/Renderers/Vulkan/VKEntryPoints.inl b/pcsx2/GS/Renderers/Vulkan/VKEntryPoints.inl
+index b4c9f36..7457ca4 100644
+--- a/pcsx2/GS/Renderers/Vulkan/VKEntryPoints.inl
++++ b/pcsx2/GS/Renderers/Vulkan/VKEntryPoints.inl
+@@ -56,6 +56,10 @@ VULKAN_INSTANCE_ENTRY_POINT(vkCreateWaylandSurfaceKHR, false)
+ VULKAN_INSTANCE_ENTRY_POINT(vkCreateMetalSurfaceEXT, false)
+ #endif
+ 
++#if defined(VK_USE_PLATFORM_ANDROID_KHR)
++VULKAN_INSTANCE_ENTRY_POINT(vkCreateAndroidSurfaceKHR, false)
++#endif
++
+ // VK_EXT_debug_utils
+ VULKAN_INSTANCE_ENTRY_POINT(vkCmdBeginDebugUtilsLabelEXT, false)
+ VULKAN_INSTANCE_ENTRY_POINT(vkCmdEndDebugUtilsLabelEXT, false)
+diff --git a/pcsx2/GS/Renderers/Vulkan/VKLoader.h b/pcsx2/GS/Renderers/Vulkan/VKLoader.h
+index 65c11f8..75d0055 100644
+--- a/pcsx2/GS/Renderers/Vulkan/VKLoader.h
++++ b/pcsx2/GS/Renderers/Vulkan/VKLoader.h
+@@ -26,6 +26,10 @@ class Error;
+ #define VK_USE_PLATFORM_METAL_EXT
+ #endif
+ 
++#if defined(__ANDROID__)
++#define VK_USE_PLATFORM_ANDROID_KHR
++#endif
++
+ #include "vulkan/vulkan.h"
+ 
+ #if defined(X11_API)
+diff --git a/pcsx2/GS/Renderers/Vulkan/VKShaderCache.cpp b/pcsx2/GS/Renderers/Vulkan/VKShaderCache.cpp
+index 5f8b2ba..77d0526 100644
+--- a/pcsx2/GS/Renderers/Vulkan/VKShaderCache.cpp
++++ b/pcsx2/GS/Renderers/Vulkan/VKShaderCache.cpp
+@@ -139,7 +139,8 @@ bool dyn_shaderc::Open()
+ 
+ 	Error error;
+ 
+-#ifdef _WIN32
++#if defined(_WIN32) || defined(__ANDROID__)
++	// Android libraries have no versioned file names.
+ 	const std::string libname = DynamicLibrary::GetVersionedFilename("shaderc_shared");
+ #else
+ 	// Use versioned, bundle post-processing adds it..
+diff --git a/pcsx2/GS/Renderers/Vulkan/VKSwapChain.cpp b/pcsx2/GS/Renderers/Vulkan/VKSwapChain.cpp
+index 4de995d..4d1a1ae 100644
+--- a/pcsx2/GS/Renderers/Vulkan/VKSwapChain.cpp
++++ b/pcsx2/GS/Renderers/Vulkan/VKSwapChain.cpp
+@@ -124,6 +124,25 @@ VkSurfaceKHR VKSwapChain::CreateVulkanSurface(VkInstance instance, VkPhysicalDev
+ 	}
+ #endif
+ 
++#if defined(VK_USE_PLATFORM_ANDROID_KHR)
++	if (wi->type == WindowInfo::Type::Android)
++	{
++		// window_handle is the ANativeWindow the app got from its Surface.
++		VkAndroidSurfaceCreateInfoKHR surface_create_info = {VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR, nullptr,
++			0, static_cast<ANativeWindow*>(wi->window_handle)};
++
++		VkSurfaceKHR surface;
++		VkResult res = vkCreateAndroidSurfaceKHR(instance, &surface_create_info, nullptr, &surface);
++		if (res != VK_SUCCESS)
++		{
++			LOG_VULKAN_ERROR(res, "vkCreateAndroidSurfaceKHR failed: ");
++			return VK_NULL_HANDLE;
++		}
++
++		return surface;
++	}
++#endif
++
+ 	return VK_NULL_HANDLE;
+ }
+ 

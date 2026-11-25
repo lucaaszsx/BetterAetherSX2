@@ -14,4 +14,33 @@ This project ships no BIOS files, games, ROMs or keys.
 
 Third-party components
 ----------------------
-No third-party components are included yet.
+The app includes the following components. Each keeps its own license.
+
+PCSX2 (upstream/pcsx2), the emulation core
+    GPL-3.0-or-later, PCSX2 Dev Team. Our changes are in upstream/patches.
+    The libraries PCSX2 bundles are in upstream/pcsx2/3rdparty, each with its
+    license file.
+
+Libraries built by android/deps/build-deps.sh and shipped in the APK
+    libjpeg-turbo   IJG AND BSD-3-Clause AND Zlib
+    libpng          libpng-2.0 (with the APNG patch)
+    libwebp         BSD-3-Clause
+    LZ4             BSD-2-Clause
+    Zstandard       BSD-3-Clause OR GPL-2.0-only
+    FreeType        FTL OR GPL-2.0-or-later
+    SDL             Zlib
+    PlutoVG         MIT
+    PlutoSVG        MIT
+    RapidYAML       MIT
+    shaderc         Apache-2.0, with glslang (BSD-3-Clause and others),
+                    SPIRV-Tools (Apache-2.0) and SPIRV-Headers (MIT)
+
+Fonts shipped with the core's resources
+    Roboto, Roboto Mono     Apache-2.0
+    Font Awesome Free       OFL-1.1
+    PromptFont              OFL-1.1
+
+Data
+    The list of known good BIOS dumps (android/app/src/main/assets/
+    known-bios.txt) comes from the redump.org datfile "Sony - PlayStation 2 -
+    BIOS Images". It contains hashes only, no BIOS data.

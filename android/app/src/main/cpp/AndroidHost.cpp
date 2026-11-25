@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The callbacks the PCSX2 core expects from its frontend. Adapted from upstream's pcsx2-gsrunner/Main.cpp
 // (PCSX2 Dev Team, GPL-3.0+). Most are no-ops until the session loop, input and UI exist; each returns the value
-// that tells the core the feature is unavailable.
+// that tells the core the feature is unavailable. The callbacks tied to the session (window, CPU thread) live in
+// Session.cpp.
 
 #include "common/Assertions.h"
 #include "common/HTTPDownloader.h"
@@ -77,10 +78,6 @@ void Host::BeginTextInput() {}
 
 void Host::EndTextInput() {}
 
-std::optional<WindowInfo> Host::GetTopLevelWindowInfo() {
-    return std::nullopt;
-}
-
 void Host::OnInputDeviceConnected(const std::string_view, const std::string_view) {}
 
 void Host::OnInputDeviceDisconnected(const InputBindingKey, const std::string_view) {}
@@ -88,12 +85,6 @@ void Host::OnInputDeviceDisconnected(const InputBindingKey, const std::string_vi
 void Host::SetMouseMode(bool, bool) {}
 
 void Host::SetMouseLock(bool) {}
-
-std::optional<WindowInfo> Host::AcquireRenderWindow(bool) {
-    return std::nullopt;
-}
-
-void Host::ReleaseRenderWindow() {}
 
 void Host::BeginPresentFrame() {}
 
@@ -119,11 +110,6 @@ void Host::OnSaveStateLoaded(const std::string_view, bool) {}
 
 void Host::OnSaveStateSaved(const std::string_view) {}
 
-// Nothing can request work on the CPU thread before the session loop exists, so reaching this is a bug.
-void Host::RunOnCPUThread(std::function<void()>, bool) {
-    pxFailRel("RunOnCPUThread before the session loop exists");
-}
-
 void Host::RefreshGameListAsync(bool) {}
 
 void Host::CancelGameListRefresh() {}
@@ -141,10 +127,6 @@ void Host::OnCaptureStopped() {}
 void Host::RequestExitApplication(bool) {}
 
 void Host::RequestExitBigPicture() {}
-
-void Host::RequestVMShutdown(bool, bool, bool) {
-    VMManager::SetState(VMState::Stopping);
-}
 
 void Host::OnAchievementsLoginSuccess(const char*, u32, u32, u32) {}
 
@@ -174,8 +156,6 @@ void Host::OpenHostFileSelectorAsync(std::string_view, bool, FileSelectorCallbac
 int Host::LocaleSensitiveCompare(std::string_view lhs, std::string_view rhs) {
     return lhs.compare(rhs);
 }
-
-void Host::PumpMessagesOnCPUThread() {}
 
 // Core strings stay untranslated: the app shows its own UI strings, not the core's.
 s32 Host::Internal::GetTranslatedStringImpl(const std::string_view, const std::string_view msg, char* tbuf,

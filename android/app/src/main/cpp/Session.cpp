@@ -61,6 +61,8 @@ std::deque<std::function<void()>> s_cpu_queue;
 bool s_boot_requested = false;
 bool s_stop_requested = false;
 bool s_vm_active = false;
+// The disc image the next VM boots, or empty for the BIOS alone.
+std::string s_boot_game;
 std::condition_variable s_vm_finished;
 
 JavaVM* s_jvm = nullptr;
@@ -165,12 +167,13 @@ void waitWhilePaused() {
     Host::PumpMessagesOnCPUThread();
 }
 
-// Boots with no disc, which runs the BIOS to its menu, and runs the VM until something stops it. Returns why the VM
-// could not start (possibly empty, when the core gave no reason), or nothing when it started.
-std::optional<std::string> runVm() {
+// Boots the requested disc image, or no disc, which runs the BIOS to its menu, and runs the VM until something stops
+// it. Returns why the VM could not start (possibly empty, when the core gave no reason), or nothing when it started.
+std::optional<std::string> runVm(const std::string& game) {
     VMManager::ApplySettings();
     VMBootParameters params;
-    params.source_type = CDVD_SourceType::NoDisc;
+    params.source_type = game.empty() ? CDVD_SourceType::NoDisc : CDVD_SourceType::Iso;
+    params.filename = game;
     Error error;
     if (VMManager::Initialize(params, &error) != VMBootResult::StartupSuccess) {
         std::string reason = error.IsValid() ? error.GetDescription() : takeLastCoreError();
@@ -224,15 +227,17 @@ void cpuThreadMain() {
     }
     for (;;) {
         bool boot = false;
+        std::string game;
         {
             std::unique_lock lock(s_cpu_mutex);
             s_cpu_wakeup.wait(lock, [] { return s_boot_requested || !s_cpu_queue.empty(); });
             boot = std::exchange(s_boot_requested, false);
+            game = s_boot_game;
         }
         Host::PumpMessagesOnCPUThread();
         if (!boot) continue;
         takeLastCoreError();
-        const std::optional<std::string> boot_failure = runVm();
+        const std::optional<std::string> boot_failure = runVm(game);
         // Run what arrived during shutdown, so no blocking caller waits forever.
         Host::PumpMessagesOnCPUThread();
         std::lock_guard lock(s_cpu_mutex);
@@ -291,9 +296,9 @@ void setPaused(bool paused) {
     });
 }
 
-// Takes ownership of the window and of the listener's global ref. A second start while a VM runs is ignored, so the
-// VM never loses its window.
-void startSession(ANativeWindow* window, JNIEnv* env, jobject listener) {
+// Takes ownership of the window and of the listener's global ref. game is a disc image path or content:// URI, or
+// empty for the BIOS. A second start while a VM runs is ignored, so the VM never loses its window.
+void startSession(ANativeWindow* window, std::string game, JNIEnv* env, jobject listener) {
     std::lock_guard lock(s_cpu_mutex);
     if (s_vm_active) {
         ANativeWindow_release(window);
@@ -302,6 +307,7 @@ void startSession(ANativeWindow* window, JNIEnv* env, jobject listener) {
     }
     releaseWindow(exchangeWindow(window));
     s_session_listener = listener;
+    s_boot_game = std::move(game);
     s_vm_active = true;
     s_boot_requested = true;
     s_stop_requested = false;
@@ -422,8 +428,14 @@ extern "C" JNIEXPORT jboolean JNICALL Java_io_github_lucaaszsx_betteraethersx2_r
 }
 
 extern "C" JNIEXPORT void JNICALL Java_io_github_lucaaszsx_betteraethersx2_runtime_NativeRuntime_nativeStartSession(
-    JNIEnv* env, jclass, jobject surface, jobject listener) {
-    startSession(ANativeWindow_fromSurface(env, surface), env, env->NewGlobalRef(listener));
+    JNIEnv* env, jclass, jobject surface, jstring game, jobject listener) {
+    std::string game_path;
+    if (game) {
+        const char* game_chars = env->GetStringUTFChars(game, nullptr);
+        game_path = game_chars;
+        env->ReleaseStringUTFChars(game, game_chars);
+    }
+    startSession(ANativeWindow_fromSurface(env, surface), std::move(game_path), env, env->NewGlobalRef(listener));
 }
 
 extern "C" JNIEXPORT void JNICALL

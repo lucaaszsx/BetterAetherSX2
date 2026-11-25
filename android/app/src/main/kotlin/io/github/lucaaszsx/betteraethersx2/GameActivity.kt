@@ -62,7 +62,7 @@ class GameActivity :
     override fun surfaceCreated(holder: SurfaceHolder) {
         if (sessionStarted) return runtime.attachSurface(holder.surface)
         sessionStarted = true
-        runtime.startSession(this, holder.surface) { failed, reason ->
+        runtime.startSession(this, holder.surface, intent.getStringExtra(EXTRA_GAME)) { failed, reason ->
             if (failed) runOnUiThread { finishWithFailure(reason) }
         }
     }
@@ -82,6 +82,9 @@ class GameActivity :
     }
 
     companion object {
+        // The disc image to boot, as a URI string. Without it the session runs the BIOS alone.
+        const val EXTRA_GAME = "io.github.lucaaszsx.betteraethersx2.GAME"
+
         // Set on the result when the session failed: the core's reason, possibly empty.
         const val EXTRA_FAILURE_REASON = "io.github.lucaaszsx.betteraethersx2.FAILURE_REASON"
     }

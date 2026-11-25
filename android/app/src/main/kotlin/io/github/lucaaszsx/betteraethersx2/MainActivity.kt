@@ -81,6 +81,12 @@ class MainActivity : ComponentActivity() {
                         sessionFailure = null
                         startGame.launch(Intent(this, GameActivity::class.java))
                     },
+                    onPlayGame = { game ->
+                        sessionFailure = null
+                        startGame.launch(
+                            Intent(this, GameActivity::class.java).putExtra(GameActivity.EXTRA_GAME, game.uri),
+                        )
+                    },
                 )
             }
         }

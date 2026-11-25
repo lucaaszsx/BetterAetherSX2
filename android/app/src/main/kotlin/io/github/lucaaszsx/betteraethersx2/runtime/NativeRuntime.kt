@@ -29,11 +29,12 @@ class NativeRuntime : EmulatorRuntime {
     override fun startSession(
         host: Activity,
         surface: Surface,
+        game: String?,
         listener: SessionListener,
     ) {
         // SDL plays the sound and asks Android for the audio devices through this activity.
         SDL.setContext(host)
-        nativeStartSession(surface, listener)
+        nativeStartSession(surface, game, listener)
     }
 
     override fun resizeSurface(
@@ -99,6 +100,7 @@ class NativeRuntime : EmulatorRuntime {
         @JvmStatic
         external fun nativeStartSession(
             surface: Surface,
+            game: String?,
             listener: SessionListener,
         )
 

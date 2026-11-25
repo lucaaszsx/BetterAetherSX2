@@ -45,7 +45,7 @@ class GameActivity :
     override fun surfaceCreated(holder: SurfaceHolder) {
         if (sessionStarted) return runtime.attachSurface(holder.surface)
         sessionStarted = true
-        runtime.startSession(holder.surface) { failed, reason ->
+        runtime.startSession(this, holder.surface) { failed, reason ->
             if (failed) runOnUiThread { finishWithFailure(reason) }
         }
     }

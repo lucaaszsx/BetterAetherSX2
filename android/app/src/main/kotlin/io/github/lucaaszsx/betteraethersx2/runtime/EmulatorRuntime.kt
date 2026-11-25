@@ -1,5 +1,6 @@
 package io.github.lucaaszsx.betteraethersx2.runtime
 
+import android.app.Activity
 import android.view.Surface
 import java.io.File
 
@@ -17,8 +18,10 @@ interface EmulatorRuntime {
         resourcesDirectory: File,
     ): Boolean
 
-    // Boots the BIOS to its menu, drawing into the surface. The listener hears once when the session ends.
+    // Boots the BIOS to its menu, drawing into the surface. The listener hears once when the session ends. The host is
+    // the activity showing the game, which the audio output needs until the session stops.
     fun startSession(
+        host: Activity,
         surface: Surface,
         listener: SessionListener,
     )

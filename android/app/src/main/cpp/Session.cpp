@@ -88,8 +88,8 @@ void logToLogcat(LOGLEVEL level, ConsoleColors, std::string_view message) {
 // Settings the Android build always needs, whatever the user file says.
 void applyAndroidOverrides(SettingsInterface& si) {
     si.SetIntValue("EmuCore/GS", "Renderer", static_cast<int>(GSRendererType::VK));
-    // Audio output comes with its own backend; until then the core runs silent.
-    si.SetStringValue("SPU2/Output", "Backend", AudioStream::GetBackendName(AudioBackend::Null));
+    // SDL plays through AAudio on Android. PCSX2's copy of cubeb, the desktop default, has no Android backend.
+    si.SetStringValue("SPU2/Output", "Backend", AudioStream::GetBackendName(AudioBackend::SDL));
     // Input arrives from the app, not from SDL.
     si.SetBoolValue("InputSources", "SDL", false);
 }

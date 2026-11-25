@@ -1,5 +1,6 @@
 package io.github.lucaaszsx.betteraethersx2.runtime
 
+import android.app.Activity
 import android.view.Surface
 import java.io.File
 
@@ -19,6 +20,7 @@ class FakeRuntime(
     ): Boolean = true
 
     override fun startSession(
+        host: Activity,
         surface: Surface,
         listener: SessionListener,
     ) {

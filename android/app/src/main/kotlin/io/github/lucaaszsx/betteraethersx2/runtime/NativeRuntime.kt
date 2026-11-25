@@ -1,6 +1,8 @@
 package io.github.lucaaszsx.betteraethersx2.runtime
 
+import android.app.Activity
 import android.view.Surface
+import org.libsdl.app.SDL
 import java.io.File
 
 // The real emulator core in libbax.so. Its state is process-wide, so the app keeps a single instance.
@@ -18,16 +20,24 @@ class NativeRuntime : EmulatorRuntime {
     ): Boolean = nativeInitialize(dataDirectory.absolutePath, resourcesDirectory.absolutePath)
 
     override fun startSession(
+        host: Activity,
         surface: Surface,
         listener: SessionListener,
-    ) = nativeStartSession(surface, listener)
+    ) {
+        // SDL plays the sound and asks Android for the audio devices through this activity.
+        SDL.setContext(host)
+        nativeStartSession(surface, listener)
+    }
 
     override fun resizeSurface(
         width: Int,
         height: Int,
     ) = nativeResizeSurface(width, height)
 
-    override fun stopSession() = nativeStopSession()
+    override fun stopSession() {
+        nativeStopSession()
+        SDL.setContext(null)
+    }
 
     override fun setPaused(paused: Boolean) = nativeSetPaused(paused)
 
@@ -38,6 +48,10 @@ class NativeRuntime : EmulatorRuntime {
     private companion object {
         init {
             System.loadLibrary("bax")
+            // Loading libbax.so loads libSDL3.so, which registers SDL's Java natives. SDL's audio code calls back
+            // into those classes, so they are set up once here, as SDLActivity would do.
+            SDL.setupJNI()
+            SDL.initialize()
         }
 
         @JvmStatic

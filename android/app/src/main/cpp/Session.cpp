@@ -317,7 +317,14 @@ void stopSession() {
     s_vm_finished.wait(lock, [] { return !s_vm_active; });
 }
 
-// Input arrives on the UI thread; the pads belong to the CPU thread, which applies it at the next vsync.
+} // namespace
+
+void recordCoreError(std::string_view message) {
+    std::lock_guard lock(s_error_mutex);
+    s_last_core_error = message;
+}
+
+// The pads belong to the CPU thread, so input from other threads waits in its queue.
 void setPadInput(u32 bind, float value) {
     if (bind >= PadDualshock2::Inputs::LENGTH) {
         __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, "Ignored input for unknown pad bind %u", bind);
@@ -326,13 +333,6 @@ void setPadInput(u32 bind, float value) {
     Host::RunOnCPUThread([bind, value] {
         if (VMManager::HasValidVM()) Pad::SetControllerState(0, bind, value);
     });
-}
-
-} // namespace
-
-void recordCoreError(std::string_view message) {
-    std::lock_guard lock(s_error_mutex);
-    s_last_core_error = message;
 }
 
 std::optional<WindowInfo> Host::AcquireRenderWindow(bool) {

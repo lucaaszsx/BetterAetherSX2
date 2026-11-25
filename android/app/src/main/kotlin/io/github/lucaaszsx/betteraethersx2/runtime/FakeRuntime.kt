@@ -3,6 +3,7 @@ package io.github.lucaaszsx.betteraethersx2.runtime
 import android.app.Activity
 import android.view.Surface
 import io.github.lucaaszsx.betteraethersx2.input.PadBind
+import io.github.lucaaszsx.betteraethersx2.input.TouchAction
 import java.io.File
 
 // Stands in for the native core in UI work and tests. It never emulates anything.
@@ -31,6 +32,7 @@ class FakeRuntime(
     override fun resizeSurface(
         width: Int,
         height: Int,
+        density: Float,
     ) = Unit
 
     override fun stopSession() {
@@ -47,5 +49,12 @@ class FakeRuntime(
     override fun setPadInput(
         bind: PadBind,
         value: Float,
+    ) = Unit
+
+    override fun touch(
+        action: TouchAction,
+        pointerId: Int,
+        x: Float,
+        y: Float,
     ) = Unit
 }

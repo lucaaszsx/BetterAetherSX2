@@ -168,7 +168,7 @@ void drawSymbol(ImDrawList& draw, Control control, ImVec2 center, float radius, 
         draw.AddCircle(center, size, OUTLINE_COLOR, 0, width);
         break;
     case Control::Square:
-        draw.AddRect({center.x - size, center.y - size}, {center.x + size, center.y + size}, OUTLINE_COLOR, 0.0f, 0,
+        draw.AddRect({center.x - size, center.y - size}, {center.x + size, center.y + size}, OUTLINE_COLOR, 0.0f,
                      width);
         break;
     case Control::Triangle:
@@ -253,7 +253,7 @@ void Host::DrawTouchControls() {
             const ImVec2 min{shape.center_x - shape.half_width, shape.center_y - shape.half_height};
             const ImVec2 max{shape.center_x + shape.half_width, shape.center_y + shape.half_height};
             draw.AddRectFilled(min, max, fill, shape.half_height);
-            draw.AddRect(min, max, OUTLINE_COLOR, shape.half_height, 0, width);
+            draw.AddRect(min, max, OUTLINE_COLOR, shape.half_height, width);
         }
         drawSymbol(draw, control, center, shape.half_width, width);
         if (control == Control::DPad) drawDPad(draw, center, shape.half_width, s_dpad_directions);

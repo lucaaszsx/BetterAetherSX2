@@ -4,6 +4,7 @@
 
 #include "Session.h"
 
+#include "TouchControls.h"
 #include "common/Console.h"
 #include "common/Error.h"
 #include "common/FileSystem.h"
@@ -438,5 +439,6 @@ extern "C" JNIEXPORT void JNICALL Java_io_github_lucaaszsx_betteraethersx2_runti
 
 extern "C" JNIEXPORT void JNICALL Java_io_github_lucaaszsx_betteraethersx2_runtime_NativeRuntime_nativeSetPadInput(
     JNIEnv*, jclass, jint bind, jfloat value) {
+    hideTouchControls();
     setPadInput(static_cast<u32>(bind), value);
 }

@@ -48,7 +48,8 @@ interface EmulatorRuntime {
     // be released afterwards. The session keeps running without drawing.
     fun detachSurface()
 
-    // Sets one input of the first controller: 0 is released, 1 is fully pressed or fully tilted.
+    // Sets one input of the first controller: 0 is released, 1 is fully pressed or fully tilted. Hides the
+    // on-screen controls until the next touch.
     fun setPadInput(
         bind: PadBind,
         value: Float,

@@ -57,6 +57,8 @@ class NativeRuntime : EmulatorRuntime {
 
     override fun detachSurface() = nativeDetachSurface()
 
+    override fun setBenchmark(enabled: Boolean) = nativeSetBenchmark(enabled)
+
     override fun setPadInput(
         bind: PadBind,
         value: Float,
@@ -121,6 +123,9 @@ class NativeRuntime : EmulatorRuntime {
 
         @JvmStatic
         external fun nativeDetachSurface()
+
+        @JvmStatic
+        external fun nativeSetBenchmark(enabled: Boolean)
 
         @JvmStatic
         external fun nativeSetPadInput(

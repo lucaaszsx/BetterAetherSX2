@@ -104,8 +104,6 @@ void Host::OnVMResumed() {}
 
 void Host::OnGameChanged(const std::string&, const std::string&, const std::string&, const std::string&, u32, u32) {}
 
-void Host::OnPerformanceMetricsUpdated() {}
-
 void Host::OnSaveStateLoading(const std::string_view) {}
 
 void Host::OnSaveStateLoaded(const std::string_view, bool) {}

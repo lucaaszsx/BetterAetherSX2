@@ -4,6 +4,7 @@
 
 #include "Session.h"
 
+#include "ContentUris.h"
 #include "TouchControls.h"
 #include "common/Console.h"
 #include "common/Error.h"
@@ -34,6 +35,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <pthread.h>
 #include <string>
 #include <thread>
 #include <utility>
@@ -66,6 +68,10 @@ JavaVM* s_jvm = nullptr;
 JNIEnv* s_cpu_env = nullptr;
 // The app object told when the session ends. Guarded by s_cpu_mutex.
 jobject s_session_listener = nullptr;
+
+// Detaches threads that attachCurrentThread attached, when they exit; the JVM aborts on a thread that exits attached.
+pthread_key_t s_detach_key;
+std::once_flag s_detach_key_created;
 
 std::mutex s_error_mutex;
 std::string s_last_core_error;
@@ -211,7 +217,7 @@ void notifySessionEnded(const std::optional<std::string>& boot_failure) {
 
 void cpuThreadMain() {
     s_cpu_thread_id = std::this_thread::get_id();
-    s_jvm->AttachCurrentThread(&s_cpu_env, nullptr);
+    s_cpu_env = attachCurrentThread();
     if (!VMManager::Internal::CPUThreadInitialize()) {
         __android_log_print(ANDROID_LOG_ERROR, LOG_TAG, "The CPU thread failed to initialize");
         return;
@@ -320,6 +326,21 @@ void stopSession() {
 
 } // namespace
 
+JNIEnv* attachCurrentThread() {
+    JNIEnv* env = nullptr;
+    if (s_jvm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6) == JNI_OK) return env;
+    std::call_once(s_detach_key_created,
+                   [] { pthread_key_create(&s_detach_key, [](void*) { s_jvm->DetachCurrentThread(); }); });
+    s_jvm->AttachCurrentThread(&env, nullptr);
+    pthread_setspecific(s_detach_key, env);
+    return env;
+}
+
+bool isVmActive() {
+    std::lock_guard lock(s_cpu_mutex);
+    return s_vm_active;
+}
+
 void recordCoreError(std::string_view message) {
     std::lock_guard lock(s_error_mutex);
     s_last_core_error = message;
@@ -391,6 +412,7 @@ extern "C" JNIEXPORT jboolean JNICALL Java_io_github_lucaaszsx_betteraethersx2_r
     // Taken here rather than in a JNI_OnLoad of our own: libbax.so pulls in libSDL3.so, and ART runs the first
     // JNI_OnLoad it finds through libbax.so, which must stay SDL's so SDL learns the JavaVM.
     env->GetJavaVM(&s_jvm);
+    initContentUris(env);
     const char* data_chars = env->GetStringUTFChars(data_dir, nullptr);
     const char* resources_chars = env->GetStringUTFChars(resources_dir, nullptr);
     const bool initialized = initialize(data_chars, resources_chars);

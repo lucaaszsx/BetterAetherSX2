@@ -1,0 +1,132 @@
+diff --git a/common/FileSystem.cpp b/common/FileSystem.cpp
+index 24eddeb..6f22428 100644
+--- a/common/FileSystem.cpp
++++ b/common/FileSystem.cpp
+@@ -971,6 +971,53 @@ std::string Path::CreateFileURL(std::string_view path)
+ 	return ret;
+ }
+ 
++#ifdef __ANDROID__
++// Files picked through Android's Storage Access Framework have content:// URIs, not paths. The host opens each one
++// as a fresh descriptor, read-only.
++static bool IsContentUri(const char* path)
++{
++	return std::strncmp(path, "content://", 10) == 0;
++}
++
++static std::FILE* OpenContentUriCFile(const char* uri, const char* mode, Error* error)
++{
++	if (std::strpbrk(mode, "wa+"))
++	{
++		Error::SetErrno(error, EROFS);
++		return nullptr;
++	}
++
++	const int fd = FileSystem::Android::OpenContentUri(uri);
++	if (fd < 0)
++	{
++		Error::SetErrno(error, ENOENT);
++		return nullptr;
++	}
++
++	std::FILE* fp = fdopen(fd, mode);
++	if (!fp)
++	{
++		Error::SetErrno(error, errno);
++		close(fd);
++	}
++	return fp;
++}
++
++static bool StatContentUri(const char* uri, struct stat* st)
++{
++	s64 size, modified;
++	if (!FileSystem::Android::StatContentUri(uri, &size, &modified))
++		return false;
++
++	*st = {};
++	st->st_mode = S_IFREG | 0444;
++	st->st_size = size;
++	st->st_mtime = modified;
++	st->st_ctime = modified;
++	return true;
++}
++#endif
++
+ std::FILE* FileSystem::OpenCFile(const char* filename, const char* mode, Error* error)
+ {
+ #ifdef _WIN32
+@@ -999,6 +1046,10 @@ std::FILE* FileSystem::OpenCFile(const char* filename, const char* mode, Error*
+ 
+ 	return fp;
+ #else
++#ifdef __ANDROID__
++	if (IsContentUri(filename))
++		return OpenContentUriCFile(filename, mode, error);
++#endif
+ 	std::FILE* fp = std::fopen(filename, mode);
+ 	if (!fp)
+ 		Error::SetErrno(error, errno);
+@@ -1096,6 +1147,10 @@ std::FILE* FileSystem::OpenSharedCFile(const char* filename, const char* mode, F
+ 	Error::SetErrno(error, errno);
+ 	return nullptr;
+ #else
++#ifdef __ANDROID__
++	if (IsContentUri(filename))
++		return OpenContentUriCFile(filename, mode, error);
++#endif
+ 	std::FILE* fp = std::fopen(filename, mode);
+ 	if (!fp)
+ 		Error::SetErrno(error, errno);
+@@ -2297,6 +2352,10 @@ bool FileSystem::FindFiles(const char* path, const char* pattern, u32 flags, Fin
+ 
+ bool FileSystem::StatFile(const char* path, struct stat* st)
+ {
++#ifdef __ANDROID__
++	if (IsContentUri(path))
++		return StatContentUri(path, st);
++#endif
+ 	return stat(path, st) == 0;
+ }
+ 
+@@ -2317,7 +2376,7 @@ bool FileSystem::StatFile(const char* path, FILESYSTEM_STAT_DATA* sd)
+ 
+ 	// stat file
+ 	struct stat sysStatData;
+-	if (stat(path, &sysStatData) < 0)
++	if (!FileSystem::StatFile(path, &sysStatData))
+ 		return false;
+ 
+ 	// parse attributes
+@@ -2373,7 +2432,7 @@ bool FileSystem::FileExists(const char* path)
+ 
+ 	// stat file
+ 	struct stat sysStatData;
+-	if (stat(path, &sysStatData) < 0)
++	if (!FileSystem::StatFile(path, &sysStatData))
+ 		return false;
+ 
+ 	if (S_ISDIR(sysStatData.st_mode))
+diff --git a/common/FileSystem.h b/common/FileSystem.h
+index 7003135..9dbba61 100644
+--- a/common/FileSystem.h
++++ b/common/FileSystem.h
+@@ -60,6 +60,18 @@ struct FILESYSTEM_FIND_DATA
+ 	u32 Attributes;
+ };
+ 
++#ifdef __ANDROID__
++/// Implemented by the Android frontend, for files that only have content:// URIs.
++namespace FileSystem::Android
++{
++	/// Returns a new read-only file descriptor the caller owns, or -1.
++	int OpenContentUri(const char* uri);
++
++	/// Size in bytes and modification time in seconds since the epoch.
++	bool StatContentUri(const char* uri, s64* size, s64* modified);
++} // namespace FileSystem::Android
++#endif
++
+ namespace FileSystem
+ {
+ 	using FindResultsArray = std::vector<FILESYSTEM_FIND_DATA>;

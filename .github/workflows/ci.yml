@@ -76,7 +76,7 @@ jobs:
                 run: |
                     sudo apt-get update
                     sudo apt-get install --yes ninja-build libcurl4-openssl-dev libpcap-dev libfontconfig-dev \
-                        libudev-dev libx11-dev libxrandr-dev libdbus-1-dev zlib1g-dev
+                        libudev-dev libx11-dev libxrandr-dev libxi-dev libdbus-1-dev zlib1g-dev
             # Restore and save are separate steps so the dependencies are cached even when a later step fails.
             -   name: Restore dependencies
                 id: deps-cache

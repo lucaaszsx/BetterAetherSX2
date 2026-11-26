@@ -5,6 +5,7 @@ get_filename_component(BAX_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../..
 
 set(BAX_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 add_subdirectory("${BAX_REPO_ROOT}/core" "${CMAKE_BINARY_DIR}/bax-core")
+add_subdirectory("${BAX_REPO_ROOT}/core/jit" "${CMAKE_BINARY_DIR}/bax-jit")
 
 # The host callbacks PCSX2 expects from a frontend, shared by the app library and the device-side test tools.
 add_library(bax_host OBJECT
@@ -33,6 +34,6 @@ target_link_libraries(bax_host PUBLIC
 )
 
 add_library(bax SHARED)
-target_link_libraries(bax PRIVATE bax_host)
+target_link_libraries(bax PRIVATE bax_host bax_jit)
 
 add_subdirectory("${BAX_REPO_ROOT}/core/difftest" "${CMAKE_BINARY_DIR}/bax-difftest")

@@ -113,7 +113,10 @@ jobs:
             -   name: Check that a divergence is caught
                 run: |
                     tester=$(find build/difftest -name bax_difftest -type f -executable)
-                    ! LD_LIBRARY_PATH="$DEPS_PREFIX/lib" "$tester" alu 1000 1 --mutate
+                    # Exit code 1 means a reported divergence; a crash would exit otherwise and prove nothing.
+                    status=0
+                    LD_LIBRARY_PATH="$DEPS_PREFIX/lib" "$tester" alu 1000 1 --mutate || status=$?
+                    test "$status" -eq 1
 
     android:
         name: Android app (native core, lint, tests, debug APK)

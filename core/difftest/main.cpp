@@ -91,6 +91,28 @@ bool parseNumber(const char* text, u64& value) {
     return std::from_chars(text, end, value).ec == std::errc{};
 }
 
+// Runs the cases and returns the process exit code: 0 when the engines agree on every case.
+int runCases(const char* class_name, OpClass op_class, u64 cases, u64 seed) {
+    for (u64 index = 0; index < cases; ++index) {
+        std::mt19937_64 random(seed + index);
+        const EeCase test_case = makeCase(op_class, random);
+        const EeState start = startState(test_case);
+        const u32 end_pc = PROGRAM_ADDRESS + static_cast<u32>(test_case.program.size() * 4);
+        const std::optional<EeState> expected = run(ORACLE, start, end_pc);
+        const std::optional<EeState> actual = run(CANDIDATE, start, end_pc);
+        const std::vector<std::string> diffs =
+            expected && actual ? diffEeState(*expected, *actual) : std::vector<std::string>{"an engine ran away"};
+        if (diffs.empty()) continue;
+
+        fmt::print("{} diverged from {} in case {} (seed {}):\n{}", CANDIDATE.name, ORACLE.name, index, seed,
+                   disassemble(test_case));
+        for (const std::string& diff : diffs) fmt::print("  {}\n", diff);
+        return 1;
+    }
+    fmt::print("{}: {} cases, 0 divergences (seed {})\n", class_name, cases, seed);
+    return 0;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -105,23 +127,9 @@ int main(int argc, char** argv) {
         fmt::print(stderr, "Could not allocate the emulated memory.\n");
         return 1;
     }
-
-    for (u64 index = 0; index < cases; ++index) {
-        std::mt19937_64 random(seed + index);
-        const EeCase test_case = makeCase(*op_class, random);
-        const EeState start = startState(test_case);
-        const u32 end_pc = PROGRAM_ADDRESS + static_cast<u32>(test_case.program.size() * 4);
-        const std::optional<EeState> expected = run(ORACLE, start, end_pc);
-        const std::optional<EeState> actual = run(CANDIDATE, start, end_pc);
-        const std::vector<std::string> diffs =
-            expected && actual ? diffEeState(*expected, *actual) : std::vector<std::string>{"an engine ran away"};
-        if (diffs.empty()) continue;
-
-        fmt::print("{} diverged from {} in case {} (seed {}):\n{}", CANDIDATE.name, ORACLE.name, index, seed,
-                   disassemble(test_case));
-        for (const std::string& diff : diffs) fmt::print("  {}\n", diff);
-        return 1;
-    }
-    fmt::print("{}: {} cases, 0 divergences (seed {})\n", argv[1], cases, seed);
-    return 0;
+    const int exit_code = runCases(argv[1], *op_class, cases, seed);
+    // The memory map is a static whose destructor asserts that nothing is still mapped, and by then the assertion
+    // handler's own statics are gone; release it while the process is still whole.
+    SysMemory::Release();
+    return exit_code;
 }

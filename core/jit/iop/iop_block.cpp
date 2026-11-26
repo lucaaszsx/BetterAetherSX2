@@ -131,13 +131,16 @@ void runBranchHooks(u32 target) {
     if (target == IOPBOOT_ENTRY) psxRegs.GPR.n.a0 = Ps2MemSize::ExposedIopRam >> 20;
 }
 
-// psxJ's call through an IRX import table: true when the module's function ran as HLE and left the PC at its return.
-bool runImportHle(u32 slot_pc, u32 slot) {
-    return R3000A::irxImportExec(R3000A::irxImportTableAddr(slot_pc), static_cast<u16>(slot & 0xffff)) != 0;
+// psxJ's call through an IRX import table, marked by the delay slot word: true when the module's function ran as HLE
+// and left the PC at its return.
+bool runImportHle(u32 slot_pc) {
+    const u32 slot = iopMemRead32(slot_pc);
+    return slot >> 16 == IRX_IMPORT_SLOT &&
+           R3000A::irxImportExec(R3000A::irxImportTableAddr(slot_pc), static_cast<u16>(slot & 0xffff)) != 0;
 }
 
-// A delay slot that is itself a branch, SYSCALL or BREAK, run as doBranch runs every slot: through execI, marked as a
-// delay slot, from the word at psxRegs.pc.
+// A delay slot that is itself a branch, SYSCALL or BREAK, or lies on the next page, run as doBranch runs every slot:
+// through execI, marked as a delay slot, from the word at psxRegs.pc.
 void runDelaySlot() {
     iopIsDelaySlot = true;
     if (psxRegs.pc == IRX_INJECT_PC) injectIrx();
@@ -244,7 +247,7 @@ CompiledBlock compileBlock(u32 start_pc, const BlockExits& exits, u8* writable, 
     const u32 last = words.back();
     const u32 body = static_cast<u32>(words.size());
     const bool ends_in_branch = isBranch(last);
-    // The delay slot is part of the block, so a write to it clears the block, wherever the slot lies.
+    // A slot on the same page is part of the block, so a write to it clears the block.
     const u32 slot = ends_in_branch ? iopMemRead32(end_pc) : 0;
 
     a64::MacroAssembler masm(writable, MAX_BLOCK_BYTES, a64::PositionIndependentCode);
@@ -309,14 +312,14 @@ CompiledBlock compileBlock(u32 start_pc, const BlockExits& exits, u8* writable, 
         const std::optional<u32> target = staticTarget(last, branch_pc);
         const u32 opcode = opcodeOf(last);
         const bool conditional = opcode != J && opcode != JAL && !isJumpRegister(last);
-        // A slot that can move the PC, or is a branch itself, runs as the interpreter runs it.
-        const bool inline_slot = !isBranch(slot) && !raisesException(slot);
-        const bool may_import = opcode == J && slot >> 16 == IRX_IMPORT_SLOT;
+        // A slot that can move the PC, is a branch itself, or lies on the next page (which may be another RAM mirror,
+        // where a write would not clear this block) runs as the interpreter runs it, from the word in memory.
+        const bool inline_slot = !isBranch(slot) && !raisesException(slot) && (end_pc & PAGE_MASK) != 0;
+        const bool may_import = opcode == J && (slot >> 16 == IRX_IMPORT_SLOT || !inline_slot);
         a64::Label import_ran, not_taken;
         emitDecision(masm, last, branch_pc);
         if (may_import) {
             masm.Mov(a64::w0, end_pc);
-            masm.Mov(a64::w1, slot);
             callAbsolute(masm, reinterpret_cast<const void*>(&runImportHle));
             masm.Cbnz(a64::w0, &import_ran);
         }

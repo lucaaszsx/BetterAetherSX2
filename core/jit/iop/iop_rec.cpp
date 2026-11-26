@@ -204,8 +204,10 @@ void recReset() {
     if (s_code) resetBlocks();
 }
 
-// Runs IOP blocks for eeCycles worth of EE time; blocks subtract the time they take, as intExecuteBlock does.
+// Runs IOP blocks for eeCycles worth of EE time; blocks subtract the time they take, as intExecuteBlock does. Without
+// code memory the interpreter runs instead.
 s32 recExecuteBlock(s32 eeCycles) {
+    if (!s_code) return psxInt.ExecuteBlock(eeCycles);
     psxRegs.iopBreak = 0;
     psxRegs.iopCycleEE = eeCycles;
     if (eeCycles > 0) s_enter();

@@ -28,8 +28,8 @@ How to work in this repository, for humans and agents.
 ```sh
 cmake -S core -B build/core -G Ninja && cmake --build build/core && ctest --test-dir build/core
 clang-format --dry-run --Werror $(git ls-files 'core/*.cpp' 'core/*.h')
-cd android && ./gradlew ktlintCheck detekt testDebugUnitTest assembleDebug
 shellcheck $(git ls-files '*.sh') && actionlint
+cd android && ./gradlew ktlintCheck detekt testDebugUnitTest assembleDebug
 ```
 
 Keep the local loop fast. Heavy suites (full differential runs, fuzzing, sanitizers, GS golden tests) run in CI; device tests and benchmarks run on real devices.

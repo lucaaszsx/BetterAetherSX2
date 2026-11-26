@@ -9,6 +9,7 @@
 // divergence.
 
 #include "CDVD/CDVDcommon.h"
+#include "Config.h"
 #include "Counters.h"
 #include "DebugTools/Debug.h"
 #include "Memory.h"
@@ -74,6 +75,9 @@ bool initializeCore() {
     CDVDsys_ChangeSource(CDVD_SourceType::NoDisc);
     // As VMManager selects them for an interpreter run. vtlb's page fault handler calls Cpu->Clear when a write hits a
     // page the recompiler protected, and branches run event tests that reach the IOP and the VUs.
+    // The interpreter's wait-loop speedhack skips time when a branch repeats the previous one's target, which can
+    // happen across cases; the recompiler has no such skip yet.
+    EmuConfig.Speedhacks.WaitLoop = false;
     Cpu = &intCpu;
     psxCpu = &psxInt;
     CpuVU0 = &CpuIntVU0;

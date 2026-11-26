@@ -12,7 +12,7 @@ How to work in this repository, for humans and agents.
 
 | Path | Contents |
 | --- | --- |
-| `core/` | Our native C++ code. Builds and tests on a Linux host, except `core/difftest/`, which links the PCSX2 core and is built only inside the Android build (it runs on a device). |
+| `core/` | Our native C++ code. Builds and tests on a Linux host, except `core/difftest/`, which links the PCSX2 core and builds only inside the PCSX2 build: for Android (run on a device), and for Linux AArch64, which CI runs on an arm64 runner. |
 | `core/jit/` | Our AArch64 EE recompiler. It works on PCSX2's CPU state, so it builds only inside the PCSX2 build for ARM64. |
 | `upstream/pcsx2/` | PCSX2 submodule, pinned to a release. Never edit it in place. |
 | `upstream/patches/` | Our changes to PCSX2 as patch files, applied by `upstream/apply-patches.sh`. Keep them few and small. |
@@ -35,7 +35,7 @@ shellcheck $(git ls-files '*.sh') && actionlint
 cd android && ./gradlew ktlintCheck detekt testDebugUnitTest assembleDebug
 ```
 
-Keep the local loop fast. Heavy suites (full differential runs, fuzzing, sanitizers, GS golden tests) run in CI; device tests and benchmarks run on real devices.
+Keep the local loop fast. Heavy suites (full differential runs, fuzzing, sanitizers, GS golden tests) run in CI, including the EE differential tests on an arm64 runner; benchmarks and game runs happen on real devices.
 
 ## Code
 

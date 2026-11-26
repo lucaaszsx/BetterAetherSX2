@@ -61,6 +61,55 @@ jobs:
             -   name: Test
                 run: ctest --test-dir build/core --output-on-failure
 
+    difftest-arm64:
+        name: EE differential tests (Linux arm64)
+        runs-on: ubuntu-24.04-arm
+        env:
+            DEPS_PREFIX: ${{ github.workspace }}/build/host-deps
+            CC: clang
+            CXX: clang++
+        steps:
+            -   uses: actions/checkout@v4
+                with:
+                    submodules: true
+            -   name: Install system libraries
+                run: |
+                    sudo apt-get update
+                    sudo apt-get install --yes ninja-build libcurl4-openssl-dev libpcap-dev libfontconfig-dev \
+                        libudev-dev libx11-dev libxrandr-dev libxi-dev libdbus-1-dev zlib1g-dev
+            # Restore and save are separate steps so the dependencies are cached even when a later step fails.
+            -   name: Restore dependencies
+                id: deps-cache
+                uses: actions/cache/restore@v4
+                with:
+                    path: build/host-deps
+                    key: host-deps-arm64-${{ hashFiles('android/deps/build-deps.sh') }}
+            -   name: Build dependencies
+                if: steps.deps-cache.outputs.cache-hit != 'true'
+                run: mkdir -p build && cd build && ../android/deps/build-deps.sh --host "$DEPS_PREFIX"
+            -   name: Save dependencies
+                if: steps.deps-cache.outputs.cache-hit != 'true'
+                uses: actions/cache/save@v4
+                with:
+                    path: build/host-deps
+                    key: ${{ steps.deps-cache.outputs.cache-primary-key }}
+            -   name: Apply our patches to PCSX2
+                run: upstream/apply-patches.sh
+            -   name: Configure
+                run: |
+                    cmake -S upstream/pcsx2 -B build/difftest -G Ninja -DCMAKE_BUILD_TYPE=Release \
+                        -DCMAKE_PREFIX_PATH="$DEPS_PREFIX" -DENABLE_QT_UI=OFF -DENABLE_TESTS=OFF \
+                        -DUSE_VULKAN=OFF -DUSE_OPENGL=OFF -DWAYLAND_API=OFF -DUSE_BACKTRACE=OFF \
+                        -DPCSX2_EXTERNAL_FRONTEND_DIR="$GITHUB_WORKSPACE/core/difftest"
+            -   name: Build
+                run: cmake --build build/difftest --target bax_difftest
+            -   name: Run 100k cases per class
+                run: |
+                    tester=$(find build/difftest -name bax_difftest -type f -executable)
+                    for class in alu shift; do
+                        LD_LIBRARY_PATH="$DEPS_PREFIX/lib" "$tester" "$class" 100000 1
+                    done
+
     android:
         name: Android app (native core, lint, tests, debug APK)
         runs-on: ubuntu-24.04

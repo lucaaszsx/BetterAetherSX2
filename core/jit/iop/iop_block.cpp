@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Block compiler of the AArch64 IOP recompiler. Instructions call the interpreter's functions; branches, their delay
-// slots and the block's cycle accounting are native code. Calls are absolute (address in a register, then BLR), so they
+// Block compiler of the AArch64 IOP recompiler. Integer instructions, branches, their delay slots and the block's cycle
+// accounting are native code; other instructions call the interpreter's functions. Calls are absolute (address in a register, then BLR), so they
 // do not depend on which view of the code buffer the bytes were written through.
 
 #include "iop/iop_block.h"
@@ -12,6 +12,7 @@
 #include "IopMem.h"
 #include "R3000A.h"
 #include "bax/jit/a64_branch.h"
+#include "iop/iop_alu.h"
 #include "vixl/aarch64/macro-assembler-aarch64.h"
 
 #include <optional>
@@ -156,7 +157,9 @@ void subtractPs1Cycles(u32 iop_cycles) {
     psxRegs.iopCycleEECarry = scaled % PS1_CLOCK_DENOMINATOR;
 }
 
-void emitInterpreterCall(a64::MacroAssembler& masm, u32 code) {
+// Runs `code` as native code when it is an integer instruction, else through the interpreter's function.
+void emitInstruction(a64::MacroAssembler& masm, u32 code) {
+    if (emitNativeAlu(masm, STATE, code)) return;
     storeWord(masm, code, a64::MemOperand(STATE, offsetIn(&psxRegs.code)));
     callAbsolute(masm, reinterpret_cast<const void*>(psxBSC[opcodeOf(code)]));
 }
@@ -297,7 +300,7 @@ CompiledBlock compileBlock(u32 start_pc, const BlockExits& exits, u8* writable, 
         if (isBranch(code)) break;
         // Only SYSCALL and BREAK read the PC (for EPC), and they end the block.
         if (raisesException(code)) storeWord(masm, pc, pc_field);
-        emitInterpreterCall(masm, code);
+        emitInstruction(masm, code);
     }
 
     if (!ends_in_branch) {
@@ -326,7 +329,7 @@ CompiledBlock compileBlock(u32 start_pc, const BlockExits& exits, u8* writable, 
         emitBranchHooks(masm, target, conditional);
         const auto emitSlot = [&] {
             if (end_pc == IRX_INJECT_PC) callAbsolute(masm, reinterpret_cast<const void*>(&injectIrx));
-            emitInterpreterCall(masm, slot);
+            emitInstruction(masm, slot);
         };
         if (inline_slot) emitSlot();
         if (conditional) masm.Cbz(TAKEN, &not_taken);

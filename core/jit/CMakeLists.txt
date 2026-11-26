@@ -8,8 +8,8 @@ add_library(bax_jit OBJECT
 
 set_target_properties(bax_jit PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+target_include_directories(bax_jit PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_include_directories(bax_jit PRIVATE
-    "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_BINARY_DIR}/common/include"
     "${CMAKE_SOURCE_DIR}"
     "${CMAKE_SOURCE_DIR}/pcsx2"

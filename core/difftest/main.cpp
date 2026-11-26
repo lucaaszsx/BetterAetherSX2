@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Differential tester for the EE: runs random instruction sequences on two engines from the same starting state and
-// compares the full CPU state they leave. Until the recompiler exists both engines are the interpreter, which checks
-// the harness itself: any divergence there is a harness bug.
+// compares the full CPU state they leave: the interpreter is the reference, our AArch64 recompiler the candidate.
 //
-//   bax_difftest <class> <cases> [seed]
+//   bax_difftest <class> <cases> [seed] [--mutate]
 //
 // A failure prints the seed and case index, the program and every field that differs, so it can be replayed.
+// --mutate flips one bit of the candidate's result in every case, which must fail: it shows the comparison catches a
+// divergence.
 
 #include "CDVD/CDVDcommon.h"
 #include "DebugTools/Debug.h"
 #include "Memory.h"
 #include "R5900.h"
+#include "ee/ee_rec.h"
 #include "ee_cases.h"
 #include "ee_state.h"
 #include "fmt/format.h"
@@ -18,6 +20,7 @@
 #include <charconv>
 #include <cstdlib>
 #include <string>
+#include <string_view>
 
 namespace {
 
@@ -37,14 +40,26 @@ struct Engine {
 
 bool runInterpreter(u32 end_pc) {
     for (u32 step = 0; step < MAX_STEPS; ++step) {
-        if (cpuRegs.pc == end_pc) return true;
-        intCpu.Step();
+        if (cpuRegs.pc != end_pc) {
+            intCpu.Step();
+            continue;
+        }
+        // The interpreter adds up cycles at branches and the recompiler at the end of each block; for a program
+        // without branches both happen once, at its end.
+        intUpdateCPUCycles();
+        return true;
     }
     return false;
 }
 
+bool runRecompiler(u32 end_pc) {
+    return bax::jit::ee::runUntil(end_pc, MAX_STEPS);
+}
+
 constexpr Engine ORACLE = {"interpreter", runInterpreter};
-constexpr Engine CANDIDATE = {"interpreter", runInterpreter};
+constexpr Engine CANDIDATE = {"recompiler", runRecompiler};
+
+bool s_mutate = false;
 
 bool initializeCore() {
     if (!SysMemory::Allocate()) return false;
@@ -54,12 +69,15 @@ bool initializeCore() {
     // cpuReset resets the CDVD drive too, which reads the disc through the current source; there must be one.
     CDVDsys_ChangeSource(CDVD_SourceType::NoDisc);
     cpuReset();
+    recCpu.Reserve();
     return true;
 }
 
 EeState startState(const EeCase& test_case) {
     for (std::size_t index = 0; index < test_case.program.size(); ++index)
         memWrite32(PROGRAM_ADDRESS + static_cast<u32>(index * 4), test_case.program[index]);
+    // The recompiler has no write protection on code pages yet, so it learns about the new program here.
+    recCpu.Clear(PROGRAM_ADDRESS, static_cast<u32>(test_case.program.size()));
     EeState state = captureEeState();
     for (int index = 0; index < 32; ++index) state.cpu.GPR.r[index].UQ = test_case.gprs[index];
     state.cpu.HI.UQ = test_case.hi;
@@ -99,7 +117,8 @@ int runCases(const char* class_name, OpClass op_class, u64 cases, u64 seed) {
         const EeState start = startState(test_case);
         const u32 end_pc = PROGRAM_ADDRESS + static_cast<u32>(test_case.program.size() * 4);
         const std::optional<EeState> expected = run(ORACLE, start, end_pc);
-        const std::optional<EeState> actual = run(CANDIDATE, start, end_pc);
+        std::optional<EeState> actual = run(CANDIDATE, start, end_pc);
+        if (s_mutate && actual) actual->cpu.GPR.r[1].UD[0] ^= 1;
         const std::vector<std::string> diffs =
             expected && actual ? diffEeState(*expected, *actual) : std::vector<std::string>{"an engine ran away"};
         if (diffs.empty()) continue;
@@ -119,8 +138,10 @@ int main(int argc, char** argv) {
     u64 cases = 0;
     u64 seed = 1;
     const std::optional<OpClass> op_class = argc >= 3 ? parseOpClass(argv[1]) : std::nullopt;
-    if (!op_class || !parseNumber(argv[2], cases) || (argc >= 4 && !parseNumber(argv[3], seed))) {
-        fmt::print(stderr, "Usage: {} <alu|shift> <cases> [seed]\n", argv[0]);
+    s_mutate = argc >= 5 && std::string_view(argv[4]) == "--mutate";
+    if (!op_class || !parseNumber(argv[2], cases) || (argc >= 4 && !parseNumber(argv[3], seed)) ||
+        (argc >= 5 && !s_mutate)) {
+        fmt::print(stderr, "Usage: {} <alu|shift> <cases> [seed] [--mutate]\n", argv[0]);
         return 2;
     }
     if (!initializeCore()) {

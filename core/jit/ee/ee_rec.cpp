@@ -3,6 +3,8 @@
 // Clear keep working), a dispatch loop that calls blocks as functions, and the R5900cpu entry points VMManager
 // selects. Direct branches between blocks replace the loop later.
 
+#include "ee/ee_rec.h"
+
 #include "Host.h"
 #include "Memory.h"
 #include "R3000A.h"
@@ -188,6 +190,22 @@ void recClear(u32 addr, u32 size) {
 }
 
 } // namespace
+
+namespace bax::jit::ee {
+
+bool runUntil(u32 stop_pc, u32 max_blocks) {
+    if (!s_code) return false;
+    // Blocks compiled for another stop address may run past this one.
+    if (stop_pc != s_stop_pc) {
+        s_stop_pc = stop_pc;
+        resetBlocks();
+    }
+    for (u32 block = 0; block < max_blocks && cpuRegs.pc != stop_pc; ++block)
+        if (!runNextBlock()) return false;
+    return cpuRegs.pc == stop_pc;
+}
+
+} // namespace bax::jit::ee
 
 R5900cpu recCpu = {
     recReserve, recShutdown, recResetEE, recStep, recExecute, safeExitExecution, recCancelInstruction, recClear,

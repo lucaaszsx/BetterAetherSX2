@@ -20,8 +20,8 @@ target_include_directories(bax_jit PRIVATE
     "${CMAKE_SOURCE_DIR}/pcsx2"
 )
 
-target_compile_definitions(bax_jit PUBLIC BAX_EE_REC)
+target_compile_definitions(bax_jit PUBLIC BAX_EE_REC BAX_IOP_REC)
 target_link_libraries(bax_jit PUBLIC PCSX2_FLAGS PCSX2 bax_core vixl)
 
-# VMManager selects the recompiler only in a core built with it.
-target_compile_definitions(PCSX2 PRIVATE BAX_EE_REC)
+# VMManager selects the recompilers only in a core built with them.
+target_compile_definitions(PCSX2 PRIVATE BAX_EE_REC BAX_IOP_REC)

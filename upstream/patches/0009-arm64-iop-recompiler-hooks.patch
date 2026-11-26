@@ -1,0 +1,49 @@
+diff --git a/pcsx2/R3000A.h b/pcsx2/R3000A.h
+--- a/pcsx2/R3000A.h
++++ b/pcsx2/R3000A.h
+@@ -189,6 +189,10 @@
+ extern R3000Acpu *psxCpu;
+ extern R3000Acpu psxInt;
+ extern R3000Acpu psxRec;
++#ifdef BAX_IOP_REC
++// False when the ARM64 IOP recompiler could not reserve its code memory or is turned off; the interpreter runs instead.
++extern bool BaxIOPRecIsReady();
++#endif
+ 
+ extern void psxReset();
+ extern void psxException(u32 code, u32 step);
+diff --git a/pcsx2/VMManager.cpp b/pcsx2/VMManager.cpp
+--- a/pcsx2/VMManager.cpp
++++ b/pcsx2/VMManager.cpp
+@@ -2677,6 +2677,9 @@
+ #ifdef BAX_EE_REC
+ 	recCpu.Reserve();
+ #endif
++#ifdef BAX_IOP_REC
++	psxRec.Reserve();
++#endif
+ 	// Despite not having any VU recompilers on ARM64, therefore no MTVU,
+ 	// we still need the thread alive. Otherwise the read and write positions
+ 	// of the ring buffer wont match, and various systems in the emulator end up deadlocked.
+@@ -2708,6 +2711,9 @@
+ #ifdef BAX_EE_REC
+ 	recCpu.Shutdown();
+ #endif
++#ifdef BAX_IOP_REC
++	psxRec.Shutdown();
++#endif
+ #endif
+ }
+ 
+@@ -2734,7 +2740,11 @@
+ #else
+ 	Cpu = &intCpu;
+ #endif
++#ifdef BAX_IOP_REC
++	psxCpu = (CHECK_IOPREC && BaxIOPRecIsReady()) ? &psxRec : &psxInt;
++#else
+ 	psxCpu = &psxInt;
++#endif
+ 
+ 	CpuVU0 = &CpuIntVU0;
+ 	CpuVU1 = &CpuIntVU1;

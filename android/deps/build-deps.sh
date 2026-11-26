@@ -150,7 +150,7 @@ unpack "$SDL.tar.gz" "$SDL"
 # as the desktop build does fails to link.
 sdl_args=()
 # The host build only serves the headless differential tester, so it needs no window system libraries.
-if [ "$TARGET" = 'host' ]; then sdl_args=(-DSDL_X11=OFF -DSDL_WAYLAND=OFF); fi
+if [ "$TARGET" = 'host' ]; then sdl_args=(-DSDL_X11=OFF -DSDL_WAYLAND=OFF -DSDL_UNIX_CONSOLE_BUILD=ON); fi
 cmake_install "$SDL" -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TEST_LIBRARY=OFF "${sdl_args[@]}"
 
 echo 'Building PlutoVG'

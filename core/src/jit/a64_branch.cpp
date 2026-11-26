@@ -9,11 +9,16 @@ constexpr std::int64_t INSTRUCTION_BYTES = 4;
 
 } // namespace
 
+// The distance is taken unsigned with an explicit direction, so it is exact for any pointer width and is checked
+// against the range before it becomes a signed offset.
 std::optional<std::uint32_t> encodeBranch(std::uintptr_t from, std::uintptr_t to) {
-    const auto offset = static_cast<std::int64_t>(to - from);
-    if (offset % INSTRUCTION_BYTES != 0) return std::nullopt;
-    if (offset < -BRANCH_RANGE_BYTES || offset >= BRANCH_RANGE_BYTES) return std::nullopt;
-    const auto words = static_cast<std::uint32_t>(offset / INSTRUCTION_BYTES);
+    const bool forward = to >= from;
+    const std::uintptr_t distance = forward ? to - from : from - to;
+    if (distance % INSTRUCTION_BYTES != 0) return std::nullopt;
+    const auto range = static_cast<std::uintptr_t>(BRANCH_RANGE_BYTES);
+    if (forward ? distance >= range : distance > range) return std::nullopt;
+    const auto offset = static_cast<std::int64_t>(distance);
+    const auto words = static_cast<std::uint32_t>((forward ? offset : -offset) / INSTRUCTION_BYTES);
     return B_OPCODE | (words & IMM26_MASK);
 }
 

@@ -54,6 +54,9 @@ interface EmulatorRuntime {
     // be released afterwards. The session keeps running without drawing.
     fun detachSurface()
 
+    // Benchmark mode logs the core's performance metrics to logcat every half second, for tools/bench/run.sh.
+    fun setBenchmark(enabled: Boolean)
+
     // Sets one input of the first controller: 0 is released, 1 is fully pressed or fully tilted. Hides the
     // on-screen controls until the next touch.
     fun setPadInput(

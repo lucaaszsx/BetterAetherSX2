@@ -87,6 +87,7 @@ class GameActivity :
     override fun surfaceCreated(holder: SurfaceHolder) {
         if (sessionStarted) return runtime.attachSurface(holder.surface)
         sessionStarted = true
+        runtime.setBenchmark(intent.getBooleanExtra(EXTRA_BENCHMARK, false))
         runtime.startSession(this, holder.surface, intent.getStringExtra(EXTRA_GAME)) { failed, reason ->
             if (failed) runOnUiThread { finishWithFailure(reason) }
         }
@@ -109,6 +110,9 @@ class GameActivity :
     companion object {
         // The disc image to boot, as a URI string. Without it the session runs the BIOS alone.
         const val EXTRA_GAME = "io.github.lucaaszsx.betteraethersx2.GAME"
+
+        // Turns on benchmark logging for this session. Only debug builds export this activity to adb.
+        const val EXTRA_BENCHMARK = "io.github.lucaaszsx.betteraethersx2.BENCHMARK"
 
         // Set on the result when the session failed: the core's reason, possibly empty.
         const val EXTRA_FAILURE_REASON = "io.github.lucaaszsx.betteraethersx2.FAILURE_REASON"

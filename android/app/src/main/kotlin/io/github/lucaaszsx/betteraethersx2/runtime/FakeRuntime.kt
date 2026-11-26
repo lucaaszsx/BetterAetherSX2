@@ -50,6 +50,8 @@ class FakeRuntime(
 
     override fun detachSurface() = Unit
 
+    override fun setBenchmark(enabled: Boolean) = Unit
+
     override fun setPadInput(
         bind: PadBind,
         value: Float,

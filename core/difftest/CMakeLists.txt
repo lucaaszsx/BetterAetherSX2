@@ -8,6 +8,7 @@ add_executable(bax_difftest
 
 target_link_libraries(bax_difftest PRIVATE
     bax_host
+    bax_jit
     PCSX2_FLAGS
     PCSX2
 )

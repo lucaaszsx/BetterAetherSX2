@@ -9,6 +9,7 @@ add_subdirectory("${BAX_REPO_ROOT}/core" "${CMAKE_BINARY_DIR}/bax-core")
 # The host callbacks PCSX2 expects from a frontend, shared by the app library and the device-side test tools.
 add_library(bax_host OBJECT
     AndroidHost.cpp
+    Benchmark.cpp
     ContentUris.cpp
     NativeRuntime.cpp
     Session.cpp

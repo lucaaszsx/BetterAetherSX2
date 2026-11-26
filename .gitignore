@@ -36,3 +36,6 @@ __pycache__/
 *.cue
 *.ps2
 *.mcd
+
+# Benchmark results from tools/bench/run.sh
+/bench/out/

@@ -10,6 +10,7 @@
 #include "R5900.h"
 #include "R5900OpcodeTables.h"
 #include "bax/jit/a64_branch.h"
+#include "ee/ee_alu.h"
 #include "ee/ee_branch.h"
 #include "ee/ee_memory.h"
 #include "vixl/aarch64/macro-assembler-aarch64.h"
@@ -181,6 +182,7 @@ CompiledBlock compileBlock(u32 start_pc, u32 stop_pc, const u32* code_to_check, 
             storeWord(masm, code, code_offset);
             break;
         }
+        if (emitNativeAlu(masm, STATE, code)) continue;
         if (isFastMemoryAccess(code)) {
             emitMemoryAccess(masm, STATE, code, emitInterpreterCall);
             continue;

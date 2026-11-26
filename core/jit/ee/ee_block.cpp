@@ -19,15 +19,13 @@ namespace {
 
 namespace a64 = vixl::aarch64;
 
-// Kept in callee-saved registers for the whole block, so the interpreter calls leave them alone.
+// Callee-saved, so the interpreter calls leave them alone. The runtime's entry code sets STATE and saves both.
 const a64::Register& STATE = a64::x19;  // &cpuRegs
 const a64::Register& CYCLES = a64::w20; // Raw cycles of the instructions run so far.
-// Holds call targets. Not one of VIXL's scratch registers (x16, x17), which its macros may use in between.
+// Holds call and jump targets. Not one of VIXL's scratch registers (x16, x17), which its macros may use in between.
 const a64::Register& CALL_TARGET = a64::x9;
 
 constexpr u32 PAGE_MASK = 0xfff;
-// Stack bytes the prologue saves: frame pointer and link register, then the two block registers.
-constexpr s32 PROLOGUE_FRAME = 32;
 
 // cpuRegisters is a struct of unions; its field offsets are taken from the live object.
 std::ptrdiff_t offsetIn(const void* field) {
@@ -40,6 +38,11 @@ u32 s_block_cycles = 0;
 void callAbsolute(a64::MacroAssembler& masm, const void* function) {
     masm.Mov(CALL_TARGET, reinterpret_cast<uintptr_t>(function));
     masm.Blr(CALL_TARGET);
+}
+
+void jumpAbsolute(a64::MacroAssembler& masm, const void* target) {
+    masm.Mov(CALL_TARGET, reinterpret_cast<uintptr_t>(target));
+    masm.Br(CALL_TARGET);
 }
 
 void storeWord(a64::MacroAssembler& masm, u32 value, std::ptrdiff_t offset) {
@@ -69,7 +72,8 @@ void commitCycles(u32 raw_cycles) {
     s_block_cycles &= rate > 1 ? (0x1u << (rate + 2)) - 1 : 0x7u;
 }
 
-CompiledBlock compileBlock(u32 start_pc, u32 stop_pc, const u32* code_to_check, u8* writable, const u8* executable) {
+CompiledBlock compileBlock(u32 start_pc, u32 stop_pc, const u32* code_to_check, const BlockExits& exits, u8* writable,
+                           const u8* executable) {
     // First the block's instructions, so a check of all of them can come before any runs. A branch is the last word
     // read; its delay slot is fetched when it runs.
     std::vector<u32> words;
@@ -84,9 +88,6 @@ CompiledBlock compileBlock(u32 start_pc, u32 stop_pc, const u32* code_to_check, 
     const std::ptrdiff_t pc_offset = offsetIn(&cpuRegs.pc);
     const std::ptrdiff_t code_offset = offsetIn(&cpuRegs.code);
 
-    masm.Stp(a64::x29, a64::x30, a64::MemOperand(a64::sp, -PROLOGUE_FRAME, a64::PreIndex));
-    masm.Stp(STATE, CYCLES.X(), a64::MemOperand(a64::sp, 16));
-
     a64::Label stale;
     if (code_to_check) {
         masm.Mov(a64::x1, reinterpret_cast<uintptr_t>(code_to_check));
@@ -97,7 +98,6 @@ CompiledBlock compileBlock(u32 start_pc, u32 stop_pc, const u32* code_to_check, 
         }
     }
 
-    masm.Mov(STATE, reinterpret_cast<uintptr_t>(&cpuRegs));
     masm.Mov(CYCLES, 0);
     a64::Label leave;
     u32 pc = start_pc;
@@ -120,23 +120,27 @@ CompiledBlock compileBlock(u32 start_pc, u32 stop_pc, const u32* code_to_check, 
         masm.B(a64::ne, &leave);
     }
 
-    a64::Label restore;
+    // The next block comes straight from the dispatcher, unless the cycle count has reached the next event.
+    a64::Label event;
     masm.Bind(&leave);
     masm.Mov(a64::w0, CYCLES);
     callAbsolute(masm, reinterpret_cast<const void*>(&commitCycles));
-    masm.Bind(&restore);
-    masm.Ldp(STATE, CYCLES.X(), a64::MemOperand(a64::sp, 16));
-    masm.Ldp(a64::x29, a64::x30, a64::MemOperand(a64::sp, PROLOGUE_FRAME, a64::PostIndex));
-    masm.Ret();
+    masm.Ldr(a64::x0, a64::MemOperand(STATE, offsetIn(&cpuRegs.cycle)));
+    masm.Ldr(a64::x1, a64::MemOperand(STATE, offsetIn(&cpuRegs.nextEventCycle)));
+    masm.Cmp(a64::x0, a64::x1);
+    masm.B(a64::hs, &event);
+    jumpAbsolute(masm, exits.dispatch);
+    masm.Bind(&event);
+    jumpAbsolute(masm, exits.event_test);
 
     if (code_to_check) {
-        // Memory no longer holds what this block was compiled from: drop it, and return with the PC still at its
+        // Memory no longer holds what this block was compiled from: drop it, and dispatch with the PC still at its
         // start, so it compiles again from the current code.
         masm.Bind(&stale);
         masm.Mov(a64::w0, start_pc);
         masm.Mov(a64::w1, static_cast<u32>(words.size()));
         callAbsolute(masm, reinterpret_cast<const void*>(&discardBlock));
-        masm.B(&restore);
+        jumpAbsolute(masm, exits.dispatch);
     }
     masm.FinalizeCode();
 

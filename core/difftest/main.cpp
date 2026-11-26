@@ -58,7 +58,7 @@ bool runInterpreter(u32 end_pc) {
 }
 
 bool runRecompiler(u32 end_pc) {
-    return bax::jit::ee::runUntil(end_pc, MAX_STEPS);
+    return bax::jit::ee::runUntil(end_pc);
 }
 
 constexpr Engine ORACLE = {"interpreter", runInterpreter};

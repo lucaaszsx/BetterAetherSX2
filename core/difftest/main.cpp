@@ -113,11 +113,14 @@ std::string disassemble(const EeCase& test_case) {
 std::optional<EeState> run(const Engine& engine, const EeState& start, u32 end_pc) {
     restoreEeState(start);
     // The interpreter runs the event test at its branches and the recompiler's test entry runs none. Keep the test
-    // from changing anything the comparison sees: no counter event and no IOP time falls inside a case.
+    // from changing anything the comparison sees: no counter event falls inside a case, and the IOP, whose counters
+    // would reach the SPU2 the tester never starts, gets no time to run.
     nextStartCounter = cpuRegs.cycle;
     nextDeltaCounter = std::numeric_limits<s32>::max();
+    psxNextStartCounter = psxRegs.cycle;
+    psxNextDeltaCounter = std::numeric_limits<s32>::max();
     EEoCycle = cpuRegs.cycle;
-    EEsCycle = 0;
+    EEsCycle = std::numeric_limits<s32>::min() / 2;
     if (!engine.run(end_pc)) return std::nullopt;
     // Bring the COP0 timer up to the cycle count, as the next event test does, so both engines are compared with
     // the time they spent.

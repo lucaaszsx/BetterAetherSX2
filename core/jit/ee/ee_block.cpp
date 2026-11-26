@@ -11,6 +11,7 @@
 #include "R5900OpcodeTables.h"
 #include "bax/jit/a64_branch.h"
 #include "ee/ee_branch.h"
+#include "ee/ee_memory.h"
 #include "vixl/aarch64/macro-assembler-aarch64.h"
 
 #include <optional>
@@ -162,20 +163,34 @@ CompiledBlock compileBlock(u32 start_pc, u32 stop_pc, const u32* code_to_check, 
     pc = start_pc;
     for (const u32 code : words) {
         const R5900::OPCODE& opcode = R5900::GetInstruction(code);
-        // The interpreter sees the PC already past the instruction, and reads its operands from cpuRegs.code.
-        storeWord(masm, pc + 4, pc_offset);
-        storeWord(masm, code, code_offset);
         masm.Add(CYCLES, CYCLES, opcode.cycles);
-        pc += 4;
-        if (isBranch(code)) break;
-        callAbsolute(masm, reinterpret_cast<const void*>(opcode.interpret));
+        const u32 next_pc = pc + 4;
+        // The interpreter sees the PC already past the instruction, and reads its operands from cpuRegs.code.
         // Exceptions, SYSCALL and ERET move the PC elsewhere, and the rest of the block no longer applies.
-        masm.Ldr(a64::w0, a64::MemOperand(STATE, pc_offset));
-        masm.Cmp(a64::w0, pc);
-        masm.B(a64::ne, &leave);
+        const auto emitInterpreterCall = [&] {
+            storeWord(masm, next_pc, pc_offset);
+            storeWord(masm, code, code_offset);
+            callAbsolute(masm, reinterpret_cast<const void*>(opcode.interpret));
+            masm.Ldr(a64::w0, a64::MemOperand(STATE, pc_offset));
+            masm.Cmp(a64::w0, next_pc);
+            masm.B(a64::ne, &leave);
+        };
+        pc = next_pc;
+        if (isBranch(code)) {
+            storeWord(masm, next_pc, pc_offset);
+            storeWord(masm, code, code_offset);
+            break;
+        }
+        if (isFastMemoryAccess(code)) {
+            emitMemoryAccess(masm, STATE, code, emitInterpreterCall);
+            continue;
+        }
+        emitInterpreterCall();
     }
 
     if (!ends_in_branch) {
+        // A native load or store last in the block leaves the PC behind, and the dispatcher reads it.
+        storeWord(masm, end_pc, pc_offset);
         emitExit(end_pc);
     } else if (!delay_slot) {
         callAbsolute(masm, reinterpret_cast<const void*>(&runBranch));

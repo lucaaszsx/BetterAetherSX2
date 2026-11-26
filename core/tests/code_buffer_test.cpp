@@ -78,6 +78,13 @@ TEST_F(CodeBufferTest, FindsTheWritableAddressOfExecutableCode) {
               buffer().writable() + SECOND_PAGE_OFFSET);
 }
 
+TEST_F(CodeBufferTest, ContainsOnlyItsExecutableView) {
+    EXPECT_TRUE(buffer().contains(buffer().executable()));
+    EXPECT_TRUE(buffer().contains(buffer().executable() + buffer().size() - 1));
+    EXPECT_FALSE(buffer().contains(buffer().executable() + buffer().size()));
+    EXPECT_FALSE(buffer().contains(buffer().writable()));
+}
+
 TEST_F(CodeBufferTest, KeepsTheMappingWhenMoved) {
     constexpr std::uint8_t MARKER = 0x5a;
     buffer().writable()[0] = MARKER;

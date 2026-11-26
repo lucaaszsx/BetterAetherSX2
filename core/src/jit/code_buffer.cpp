@@ -85,6 +85,11 @@ void CodeBuffer::release() {
     if (executable_) munmap(executable_, size_);
 }
 
+bool CodeBuffer::contains(const void* executable_address) const {
+    const auto* address = static_cast<const std::uint8_t*>(executable_address);
+    return address >= executable_ && address < executable_ + size_;
+}
+
 std::uint8_t* CodeBuffer::writableAt(const void* executable_address) const {
     return writable_ + (static_cast<const std::uint8_t*>(executable_address) - executable_);
 }

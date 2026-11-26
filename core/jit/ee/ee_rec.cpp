@@ -10,7 +10,6 @@
 #include "R3000A.h"
 #include "R5900.h"
 #include "VMManager.h"
-#include "bax/jit/a64_branch.h"
 #include "bax/jit/code_buffer.h"
 #include "common/Assertions.h"
 #include "common/Console.h"
@@ -20,7 +19,6 @@
 #include "x86/BaseblockEx.h"
 
 #include <algorithm>
-#include <cstring>
 #include <optional>
 #include <string>
 #include <utility>
@@ -352,6 +350,10 @@ void discardBlock(u32 start_pc, u32 words) {
     recClear(start_pc, words);
 }
 
+const CodeBuffer* codeBuffer() {
+    return s_code ? &*s_code : nullptr;
+}
+
 bool runUntil(u32 stop_pc) {
     if (!s_code) return false;
     // Blocks compiled for another stop address may run past this one.
@@ -376,11 +378,4 @@ R5900cpu recCpu = {
 // the interpreter runs (VU0 cycle sync) and shows a performance warning.
 bool BaxEERecIsReady() {
     return s_code.has_value() && Host::GetBaseBoolSettingValue("BetterAetherSX2", "EERecompiler", false);
-}
-
-void BaseBlocks_SetBranchTarget(uptr site, uptr target) {
-    const std::optional<u32> branch = bax::jit::encodeBranch(site, target);
-    pxAssertRel(branch.has_value(), "A block link is outside the range of a direct branch.");
-    std::memcpy(s_code->writableAt(reinterpret_cast<const void*>(site)), &*branch, sizeof(u32));
-    s_code->flush(site - reinterpret_cast<uptr>(s_code->executable()), sizeof(u32));
 }

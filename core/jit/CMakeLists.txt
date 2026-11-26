@@ -1,6 +1,7 @@
 # Our AArch64 EE recompiler. It works on PCSX2's CPU state, so it builds only inside the PCSX2 build for ARM64, added
 # by the Android app's native library and by the Linux differential tester.
 add_library(bax_jit OBJECT
+    block_links.cpp
     ee/ee_alu.cpp
     ee/ee_block.cpp
     ee/ee_branch.cpp

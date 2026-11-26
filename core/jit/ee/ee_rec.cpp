@@ -57,6 +57,7 @@ bax::jit::ee::BlockExits s_exits = {};
 std::size_t s_entry_code_bytes = 0;
 
 u32 s_stop_pc = NO_STOP_PC;
+s8 s_compiled_cycle_rate = 0;
 // The differential tester's limit on cycles, so a program that never reaches its end cannot hang it.
 constexpr u64 TEST_CYCLE_BUDGET = 1u << 20;
 u64 s_test_deadline = 0;
@@ -93,6 +94,7 @@ void mapLut() {
 }
 
 void resetBlocks() {
+    s_compiled_cycle_rate = EmuConfig.Speedhacks.EECycleRate;
     mapLut();
     s_blocks.Reset();
     s_code_used = s_entry_code_bytes;
@@ -218,6 +220,11 @@ const u8* dispatchMiss() {
 // was requested, or the tester's cycle budget ran out.
 bool eventTest() {
     _cpuEventTest_Shared();
+    // Blocks commit cycles for the EE cycle rate they were compiled under; no block is running here.
+    if (EmuConfig.Speedhacks.EECycleRate != s_compiled_cycle_rate) {
+        s_compiled_cycle_rate = EmuConfig.Speedhacks.EECycleRate;
+        resetBlocks();
+    }
     if (s_stop_pc != NO_STOP_PC && cpuRegs.cycle >= s_test_deadline) return false;
     return !std::exchange(s_exit_requested, false);
 }

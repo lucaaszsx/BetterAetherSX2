@@ -97,6 +97,7 @@ EeState startState(const EeCase& test_case) {
     state.cpu.HI.UQ = test_case.hi;
     state.cpu.LO.UQ = test_case.lo;
     state.cpu.pc = PROGRAM_ADDRESS;
+    if (!test_case.data.empty()) state.data = test_case.data;
     // Far from Count, so the COP0 timer interrupt cannot fire during a case.
     state.cpu.CP0.n.Compare = state.cpu.CP0.n.Count + COMPARE_DISTANCE;
     return state;
@@ -171,7 +172,7 @@ int main(int argc, char** argv) {
     s_mutate = argc >= 5 && std::string_view(argv[4]) == "--mutate";
     if (!op_class || !parseNumber(argv[2], cases) || (argc >= 4 && !parseNumber(argv[3], seed)) ||
         (argc >= 5 && !s_mutate)) {
-        fmt::print(stderr, "Usage: {} <alu|shift|branch> <cases> [seed] [--mutate]\n", argv[0]);
+        fmt::print(stderr, "Usage: {} <alu|shift|branch|memory> <cases> [seed] [--mutate]\n", argv[0]);
         return 2;
     }
     // The core's warnings and errors go to the terminal, so a failure in CI says why.

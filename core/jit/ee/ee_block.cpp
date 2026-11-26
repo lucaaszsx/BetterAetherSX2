@@ -11,6 +11,7 @@
 #include "R5900OpcodeTables.h"
 #include "bax/jit/a64_branch.h"
 #include "ee/ee_branch.h"
+#include "ee/ee_memory.h"
 #include "vixl/aarch64/macro-assembler-aarch64.h"
 
 #include <optional>
@@ -38,6 +39,11 @@ std::ptrdiff_t offsetIn(const void* field) {
 // The interpreter's fractional cycle count, carried from block to block.
 u32 s_block_cycles = 0;
 
+// Bit 18 of CP0 Config: when clear, each instruction costs twice its listed cycles, as execI applies it.
+constexpr unsigned CONFIG_HALF_CYCLES_BIT = 18;
+// intUpdateCPUCycles keeps cycles as 3-bit fixed point, carrying the fraction to the next update.
+constexpr unsigned CYCLE_FRACTION_BITS = 3;
+
 void callAbsolute(a64::MacroAssembler& masm, const void* function) {
     masm.Mov(CALL_TARGET, reinterpret_cast<uintptr_t>(function));
     masm.Blr(CALL_TARGET);
@@ -51,6 +57,29 @@ void jumpAbsolute(a64::MacroAssembler& masm, const void* target) {
 void storeWord(a64::MacroAssembler& masm, u32 value, std::ptrdiff_t offset) {
     masm.Mov(a64::w0, value);
     masm.Str(a64::w0, a64::MemOperand(STATE, offset));
+}
+
+// Commits CYCLES to cpuRegs.cycle. At the default EE cycle rate this is intUpdateCPUCycles' arithmetic inline: the
+// fixed-point total shifted down, at least one cycle, the fraction kept. Other rates call commitCycles; the runtime
+// recompiles every block when the rate changes.
+void emitCommitCycles(a64::MacroAssembler& masm) {
+    masm.Mov(a64::w0, CYCLES);
+    if (EmuConfig.Speedhacks.EECycleRate != 0) return callAbsolute(masm, reinterpret_cast<const void*>(&commitCycles));
+    masm.Ldr(a64::w1, a64::MemOperand(STATE, offsetIn(&cpuRegs.CP0.n.Config)));
+    masm.Ubfx(a64::w1, a64::w1, CONFIG_HALF_CYCLES_BIT, 1);
+    masm.Eor(a64::w1, a64::w1, 1);
+    masm.Lsl(a64::w0, a64::w0, a64::w1);
+    masm.Mov(a64::x3, reinterpret_cast<uintptr_t>(&s_block_cycles));
+    masm.Ldr(a64::w4, a64::MemOperand(a64::x3));
+    masm.Add(a64::w4, a64::w4, a64::w0);
+    masm.Lsr(a64::w5, a64::w4, CYCLE_FRACTION_BITS);
+    masm.Cmp(a64::w5, 0);
+    masm.Csinc(a64::w5, a64::w5, a64::wzr, a64::ne);
+    masm.Ldr(a64::x6, a64::MemOperand(STATE, offsetIn(&cpuRegs.cycle)));
+    masm.Add(a64::x6, a64::x6, a64::Operand(a64::w5, a64::UXTW));
+    masm.Str(a64::x6, a64::MemOperand(STATE, offsetIn(&cpuRegs.cycle)));
+    masm.And(a64::w4, a64::w4, (1u << CYCLE_FRACTION_BITS) - 1);
+    masm.Str(a64::w4, a64::MemOperand(a64::x3));
 }
 
 } // namespace
@@ -117,8 +146,7 @@ CompiledBlock compileBlock(u32 start_pc, u32 stop_pc, const u32* code_to_check, 
     std::vector<LinkSite> links;
     a64::Label event;
     const auto emitExit = [&](std::optional<u32> next_pc) {
-        masm.Mov(a64::w0, CYCLES);
-        callAbsolute(masm, reinterpret_cast<const void*>(&commitCycles));
+        emitCommitCycles(masm);
         masm.Ldr(a64::x0, a64::MemOperand(STATE, offsetIn(&cpuRegs.cycle)));
         masm.Ldr(a64::x1, a64::MemOperand(STATE, offsetIn(&cpuRegs.nextEventCycle)));
         masm.Cmp(a64::x0, a64::x1);
@@ -135,20 +163,34 @@ CompiledBlock compileBlock(u32 start_pc, u32 stop_pc, const u32* code_to_check, 
     pc = start_pc;
     for (const u32 code : words) {
         const R5900::OPCODE& opcode = R5900::GetInstruction(code);
-        // The interpreter sees the PC already past the instruction, and reads its operands from cpuRegs.code.
-        storeWord(masm, pc + 4, pc_offset);
-        storeWord(masm, code, code_offset);
         masm.Add(CYCLES, CYCLES, opcode.cycles);
-        pc += 4;
-        if (isBranch(code)) break;
-        callAbsolute(masm, reinterpret_cast<const void*>(opcode.interpret));
+        const u32 next_pc = pc + 4;
+        // The interpreter sees the PC already past the instruction, and reads its operands from cpuRegs.code.
         // Exceptions, SYSCALL and ERET move the PC elsewhere, and the rest of the block no longer applies.
-        masm.Ldr(a64::w0, a64::MemOperand(STATE, pc_offset));
-        masm.Cmp(a64::w0, pc);
-        masm.B(a64::ne, &leave);
+        const auto emitInterpreterCall = [&] {
+            storeWord(masm, next_pc, pc_offset);
+            storeWord(masm, code, code_offset);
+            callAbsolute(masm, reinterpret_cast<const void*>(opcode.interpret));
+            masm.Ldr(a64::w0, a64::MemOperand(STATE, pc_offset));
+            masm.Cmp(a64::w0, next_pc);
+            masm.B(a64::ne, &leave);
+        };
+        pc = next_pc;
+        if (isBranch(code)) {
+            storeWord(masm, next_pc, pc_offset);
+            storeWord(masm, code, code_offset);
+            break;
+        }
+        if (isFastMemoryAccess(code)) {
+            emitMemoryAccess(masm, STATE, code, emitInterpreterCall);
+            continue;
+        }
+        emitInterpreterCall();
     }
 
     if (!ends_in_branch) {
+        // A native load or store last in the block leaves the PC behind, and the dispatcher reads it.
+        storeWord(masm, end_pc, pc_offset);
         emitExit(end_pc);
     } else if (!delay_slot) {
         callAbsolute(masm, reinterpret_cast<const void*>(&runBranch));

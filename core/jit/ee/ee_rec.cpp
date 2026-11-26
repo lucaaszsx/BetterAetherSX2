@@ -132,9 +132,53 @@ void safeExitExecution() {
     }
 }
 
+// Where EELOAD keeps the JAL to its main function, and the JALs to the function that calls ExecPS2, by BIOS
+// version (v1.00-v1.10; v1.20-v1.60 3000x; v1.60 3900x; v1.70-v2.30), with the two places that function lives.
+// The offsets come from upstream's interpreter (Interpreter.cpp), which reads them the same way.
+constexpr u32 EELOAD_MAIN_JUMP = EELOAD_START + 0x9c;
+constexpr u32 EELOAD_EXEC_JUMP_A = EELOAD_START + 0x470;
+constexpr u32 EELOAD_EXEC_JUMP_B = EELOAD_START + 0x5b0;
+constexpr u32 EELOAD_EXEC_JUMP_C = EELOAD_START + 0x618;
+constexpr u32 EELOAD_EXEC_JUMP_D = EELOAD_START + 0x600;
+constexpr u32 EELOAD_EXEC_LATE = EELOAD_START + 0x2b8;
+constexpr u32 EELOAD_EXEC_EARLY = EELOAD_START + 0x170;
+constexpr u32 JAL_OPCODE = 3;
+
+bool isJal(u32 code) {
+    return code >> 26 == JAL_OPCODE;
+}
+
+// The EELOAD function that calls ExecPS2, which eeloadHook2 patches so fast boot can pass launch arguments.
+u32 findEeloadExec() {
+    if (isJal(memRead32(EELOAD_EXEC_JUMP_B)) || isJal(memRead32(EELOAD_EXEC_JUMP_C)) ||
+        isJal(memRead32(EELOAD_EXEC_JUMP_D)))
+        return EELOAD_EXEC_LATE;
+    if (isJal(memRead32(EELOAD_EXEC_JUMP_A))) return EELOAD_EXEC_EARLY;
+    WARNING_LOG("EE recompiler: unknown EELOAD version; fast boot cannot pass launch arguments.");
+    return 0;
+}
+
+// The hooks upstream's interpreter runs at fixed addresses while the BIOS boots a disc: eeloadHook hands EELOAD the
+// game's ELF on fast boot and adds launch arguments, eeloadHook2 lets EELOAD accept them, and reaching the ELF's
+// entry point applies the game's patches and database settings. Without them the game does not boot as it should.
+void runBootHooks(u32 pc) {
+    if (pc == EELOAD_START) {
+        const u32 main_jump = memRead32(EELOAD_MAIN_JUMP);
+        if (isJal(main_jump)) g_eeloadMain = ((EELOAD_MAIN_JUMP + 4) & 0xf0000000u) | ((main_jump << 2) & 0x0fffffffu);
+    } else if (g_eeloadMain != 0 && pc == g_eeloadMain) {
+        eeloadHook();
+        if (VMManager::Internal::IsFastBootInProgress()) g_eeloadExec = findEeloadExec();
+    } else if (g_eeloadExec != 0 && pc == g_eeloadExec) {
+        eeloadHook2();
+    } else if (pc == VMManager::Internal::GetCurrentELFEntryPoint()) {
+        VMManager::Internal::EntryPointCompilingOnCPUThread();
+    }
+}
+
 // Runs the block at cpuRegs.pc, compiling it first if needed. False when the PC cannot hold code.
 bool runNextBlock() {
     const u32 pc = cpuRegs.pc;
+    if (!VMManager::Internal::HasBootedELF()) runBootHooks(pc);
     BASEBLOCK* entry = entryFor(pc);
     const bool unmapped = entry >= s_lut_unmapped.data() && entry < s_lut_unmapped.data() + s_lut_unmapped.size();
     if (unmapped || (pc & 3) != 0) {

@@ -1,0 +1,17 @@
+# Answers one question: can this repository use GitHub's hosted Linux arm64 runners? If so, the differential tester
+# can run in CI instead of on a device. Started by hand, so a job that never gets a runner cannot hold up pull requests.
+name: arm64 runner probe
+
+on:
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+jobs:
+    probe:
+        name: Report the runner's architecture
+        runs-on: ubuntu-24.04-arm
+        timeout-minutes: 5
+        steps:
+            -   run: uname -m && nproc

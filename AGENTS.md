@@ -12,10 +12,11 @@ How to work in this repository, for humans and agents.
 
 | Path | Contents |
 | --- | --- |
-| `core/` | Our native C++ code. Builds and tests on a Linux host. |
+| `core/` | Our native C++ code. Builds and tests on a Linux host, except `core/difftest/`, which links the PCSX2 core and is built only inside the Android build (it runs on a device). |
 | `upstream/pcsx2/` | PCSX2 submodule, pinned to a release. Never edit it in place. |
 | `upstream/patches/` | Our changes to PCSX2 as patch files, applied by `upstream/apply-patches.sh`. Keep them few and small. |
 | `android/` | Gradle project. `app/src/main/kotlin`: Kotlin/Compose UI. `app/src/main/cpp`: the native library `libbax.so` (JNI entry points and the host callbacks PCSX2 expects from a frontend). `deps/build-deps.sh`: builds PCSX2's libraries with the NDK. |
+| `tools/difftest/` | `run.sh`: runs the EE differential tester (`core/difftest/`, CI artifact `device-tests`) on a device over adb. |
 
 `android/` depends on `core/` and `upstream/`; `core/` depends on `upstream/`; nothing depends on `android/`.
 

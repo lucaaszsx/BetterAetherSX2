@@ -120,3 +120,12 @@ jobs:
                     name: native-symbols
                     path: android/app/build/intermediates/cxx/**/obj/arm64-v8a/libbax.so
                     retention-days: 7
+            -   name: Upload device test tools
+                uses: actions/upload-artifact@v4
+                with:
+                    name: device-tests
+                    path: |
+                        android/app/build/intermediates/cxx/**/obj/arm64-v8a/bax_difftest
+                        android/app/.cxx/**/bax_difftest
+                    if-no-files-found: error
+                    retention-days: 7

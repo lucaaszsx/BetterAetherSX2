@@ -4,14 +4,22 @@
 #include "common/Pcsx2Types.h"
 
 #include <cstddef>
+#include <vector>
 
 namespace bax::jit::ee {
 
+// A direct B at the end of a block, which should jump to the block at target_pc once that block exists.
+struct LinkSite {
+    u32 target_pc;
+    const u8* site; // Executable address of the B.
+};
+
 // Where a compiled block landed in the code buffer.
 struct CompiledBlock {
-    const u8* entry; // Executable address: call it as void().
+    const u8* entry; // Executable address the dispatcher jumps to.
     std::size_t bytes;
     u32 instructions; // EE instructions the block covers, a branch's delay slot included.
+    std::vector<LinkSite> links;
 };
 
 // Where a block goes when it ends, as executable addresses in the runtime's entry code: the dispatcher, which jumps

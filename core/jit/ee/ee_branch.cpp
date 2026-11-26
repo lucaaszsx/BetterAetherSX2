@@ -127,6 +127,31 @@ bool isBranch(u32 code) {
     }
 }
 
+u64 decideBranch() {
+    const Outcome outcome = decide();
+    switch (outcome.decision) {
+    case Decision::Taken:
+        return BRANCH_TAKEN | outcome.target;
+    case Decision::SkipDelaySlot:
+        return BRANCH_SKIPS_SLOT;
+    case Decision::NotTaken:
+        return 0;
+    }
+    return 0;
+}
+
+std::optional<u32> staticTarget(u32 code, u32 pc) {
+    switch (code >> 26) {
+    case J:
+    case JAL:
+        return ((pc + 4) & 0xf0000000u) | ((code & 0x03ffffffu) << 2);
+    case SPECIAL:
+        return std::nullopt;
+    default:
+        return pc + 4 + (static_cast<u32>(static_cast<s32>(static_cast<s16>(code & 0xffff))) << 2);
+    }
+}
+
 u32 runBranch() {
     const Outcome outcome = decide();
     if (outcome.decision == Decision::SkipDelaySlot) {

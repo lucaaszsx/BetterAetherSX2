@@ -1,0 +1,132 @@
+diff --git a/pcsx2/CMakeLists.txt b/pcsx2/CMakeLists.txt
+--- a/pcsx2/CMakeLists.txt
++++ b/pcsx2/CMakeLists.txt
+@@ -1060,6 +1060,7 @@
+ 	arm64/Vif_Dynarec.cpp
+ 	arm64/Vif_UnpackNEON.cpp
+ 	arm64/RecStubs.cpp
++	x86/BaseblockEx.cpp
+ 	)
+ 
+ set(pcsx2arm64Headers
+diff --git a/pcsx2/R5900.h b/pcsx2/R5900.h
+--- a/pcsx2/R5900.h
++++ b/pcsx2/R5900.h
+@@ -355,6 +355,10 @@
+ extern R5900cpu *Cpu;
+ extern R5900cpu intCpu;
+ extern R5900cpu recCpu;
++#ifdef BAX_EE_REC
++// False when the ARM64 recompiler could not reserve its code memory; the interpreter runs instead.
++extern bool BaxEERecIsReady();
++#endif
+ 
+ enum EE_intProcessStatus
+ {
+diff --git a/pcsx2/VMManager.cpp b/pcsx2/VMManager.cpp
+--- a/pcsx2/VMManager.cpp
++++ b/pcsx2/VMManager.cpp
+@@ -2674,6 +2674,9 @@
+ 	CpuMicroVU0.Reserve();
+ 	CpuMicroVU1.Reserve();
+ #else
++#ifdef BAX_EE_REC
++	recCpu.Reserve();
++#endif
+ 	// Despite not having any VU recompilers on ARM64, therefore no MTVU,
+ 	// we still need the thread alive. Otherwise the read and write positions
+ 	// of the ring buffer wont match, and various systems in the emulator end up deadlocked.
+@@ -2702,6 +2705,9 @@
+ 	// still need to manage the MTVU thread.
+ 	if (vu1Thread.IsOpen())
+ 		vu1Thread.WaitVU();
++#ifdef BAX_EE_REC
++	recCpu.Shutdown();
++#endif
+ #endif
+ }
+ 
+@@ -2723,7 +2729,11 @@
+ 	CpuVU0 = EmuConfig.Cpu.Recompiler.EnableVU0 ? static_cast<BaseVUmicroCPU*>(&CpuMicroVU0) : static_cast<BaseVUmicroCPU*>(&CpuIntVU0);
+ 	CpuVU1 = EmuConfig.Cpu.Recompiler.EnableVU1 ? static_cast<BaseVUmicroCPU*>(&CpuMicroVU1) : static_cast<BaseVUmicroCPU*>(&CpuIntVU1);
+ #else
++#ifdef BAX_EE_REC
++	Cpu = (CHECK_EEREC && BaxEERecIsReady()) ? &recCpu : &intCpu;
++#else
+ 	Cpu = &intCpu;
++#endif
+ 	psxCpu = &psxInt;
+ 
+ 	CpuVU0 = &CpuIntVU0;
+diff --git a/pcsx2/x86/BaseblockEx.cpp b/pcsx2/x86/BaseblockEx.cpp
+--- a/pcsx2/x86/BaseblockEx.cpp
++++ b/pcsx2/x86/BaseblockEx.cpp
+@@ -7,7 +7,13 @@
+ {
+ 	std::pair<linkiter_t, linkiter_t> range = links.equal_range(startpc);
+ 	for (linkiter_t i = range.first; i != range.second; ++i)
++	{
++#ifdef _M_X86
+ 		*(u32*)i->second = fnptr - (i->second + 4);
++#else
++		BaseBlocks_SetBranchTarget(i->second, fnptr);
++#endif
++	}
+ 
+ 	return blocks.insert(startpc, fnptr);
+ }
+@@ -60,9 +66,14 @@
+ void BaseBlocks::Link(u32 pc, s32* jumpptr)
+ {
+ 	BASEBLOCKEX* targetblock = Get(pc);
++#ifdef _M_X86
+ 	if (targetblock && targetblock->startpc == pc)
+ 		*jumpptr = (s32)(targetblock->fnptr - (sptr)(jumpptr + 1));
+ 	else
+ 		*jumpptr = (s32)(recompiler - (sptr)(jumpptr + 1));
++#else
++	const bool known = targetblock && targetblock->startpc == pc;
++	BaseBlocks_SetBranchTarget((uptr)jumpptr, known ? targetblock->fnptr : recompiler);
++#endif
+ 	links.insert(std::pair<u32, uptr>(pc, (uptr)jumpptr));
+ }
+diff --git a/pcsx2/x86/BaseblockEx.h b/pcsx2/x86/BaseblockEx.h
+--- a/pcsx2/x86/BaseblockEx.h
++++ b/pcsx2/x86/BaseblockEx.h
+@@ -138,6 +138,12 @@
+ 	}
+ };
+ 
++#ifndef _M_X86
++// Points the branch instruction at `site`, an address in recompiled code, to `target`. Provided by the ARM64
++// recompiler, which writes code through a separate writable mapping and must flush the instruction cache.
++void BaseBlocks_SetBranchTarget(uptr site, uptr target);
++#endif
++
+ class BaseBlocks
+ {
+ protected:
+@@ -199,8 +205,15 @@
+ 			//u32 startpc = blocks[idx].startpc;
+ 			std::pair<linkiter_t, linkiter_t> range = links.equal_range(blocks[idx].startpc);
+ 			for (linkiter_t i = range.first; i != range.second; ++i)
++			{
++#ifdef _M_X86
+ 				*(u32*)i->second = recompiler - (i->second + 4);
++#else
++				BaseBlocks_SetBranchTarget(i->second, recompiler);
++#endif
++			}
+ 
++#ifdef _M_X86
+ 			if (IsDevBuild)
+ 			{
+ 				// Clear the first instruction to 0xcc (breakpoint), as a way to assert if some
+@@ -211,6 +224,7 @@
+ 				BASEBLOCKEX effu(blocks[idx]);
+ 				memset((void*)effu.fnptr, 0xcc, 1);
+ 			}
++#endif
+ 		} while (idx++ < last);
+ 
+ 		// TODO: remove links from this block?

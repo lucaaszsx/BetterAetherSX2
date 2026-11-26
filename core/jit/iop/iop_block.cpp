@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Block compiler of the AArch64 IOP recompiler. Integer instructions, branches, their delay slots and the block's cycle
-// accounting are native code; other instructions call the interpreter's functions. Calls are absolute (address in a register, then BLR), so they
-// do not depend on which view of the code buffer the bytes were written through.
+// Block compiler of the AArch64 IOP recompiler. Integer instructions, loads and stores to RAM, branches, their delay
+// slots and the block's cycle accounting are native code; other instructions call the interpreter's functions. Calls
+// are absolute (address in a register, then BLR), so they do not depend on which view of the code buffer the bytes were
+// written through.
 
 #include "iop/iop_block.h"
 

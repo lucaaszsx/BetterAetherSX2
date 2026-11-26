@@ -12,6 +12,7 @@ namespace bax::difftest {
 struct EeState {
     cpuRegisters cpu;
     fpuRegisters fpu;
+    std::vector<u8> data; // The data area (DATA_ADDRESS, DATA_BYTES).
 };
 
 EeState captureEeState();

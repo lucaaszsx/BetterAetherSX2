@@ -22,9 +22,16 @@ inline constexpr std::size_t MAX_BLOCK_BYTES = 16 * 1024;
 // view of the same memory. The block ends at a branch (after its delay slot), at a 4 KB page boundary, after
 // MAX_BLOCK_INSTRUCTIONS, or right before stop_pc, the differential tester's end address.
 //
+// code_to_check, when not null, is where the block's instructions live in host memory: before every run the block
+// compares them with the words it was compiled from, and on a mismatch calls discardBlock and returns without running.
+// Code on pages that cannot be write-protected uses it.
+//
 // This first tier calls the interpreter for every instruction, so it covers every opcode; native code for the common
 // classes replaces those calls class by class.
-CompiledBlock compileBlock(u32 start_pc, u32 stop_pc, u8* writable, const u8* executable);
+CompiledBlock compileBlock(u32 start_pc, u32 stop_pc, const u32* code_to_check, u8* writable, const u8* executable);
+
+// Forgets the block of `words` instructions at start_pc, whose code changed; provided by the runtime.
+void discardBlock(u32 start_pc, u32 words);
 
 // Adds a block's raw cycles to cpuRegs.cycle with the interpreter's scaling (intUpdateCPUCycles), keeping the same
 // fractional remainder between blocks.

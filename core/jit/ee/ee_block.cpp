@@ -12,6 +12,8 @@
 #include "ee/ee_branch.h"
 #include "vixl/aarch64/macro-assembler-aarch64.h"
 
+#include <vector>
+
 namespace bax::jit::ee {
 namespace {
 
@@ -67,32 +69,48 @@ void commitCycles(u32 raw_cycles) {
     s_block_cycles &= rate > 1 ? (0x1u << (rate + 2)) - 1 : 0x7u;
 }
 
-CompiledBlock compileBlock(u32 start_pc, u32 stop_pc, u8* writable, const u8* executable) {
+CompiledBlock compileBlock(u32 start_pc, u32 stop_pc, const u32* code_to_check, u8* writable, const u8* executable) {
+    // First the block's instructions, so a check of all of them can come before any runs. A branch is the last word
+    // read; its delay slot is fetched when it runs.
+    std::vector<u32> words;
+    for (u32 pc = start_pc;;) {
+        words.push_back(memRead32(pc));
+        pc += 4;
+        if (isBranch(words.back()) || words.size() >= MAX_BLOCK_INSTRUCTIONS || pc == stop_pc || (pc & PAGE_MASK) == 0)
+            break;
+    }
+
     a64::MacroAssembler masm(writable, MAX_BLOCK_BYTES, a64::PositionIndependentCode);
     const std::ptrdiff_t pc_offset = offsetIn(&cpuRegs.pc);
     const std::ptrdiff_t code_offset = offsetIn(&cpuRegs.code);
 
     masm.Stp(a64::x29, a64::x30, a64::MemOperand(a64::sp, -PROLOGUE_FRAME, a64::PreIndex));
     masm.Stp(STATE, CYCLES.X(), a64::MemOperand(a64::sp, 16));
+
+    a64::Label stale;
+    if (code_to_check) {
+        masm.Mov(a64::x1, reinterpret_cast<uintptr_t>(code_to_check));
+        for (std::size_t index = 0; index < words.size(); ++index) {
+            masm.Ldr(a64::w0, a64::MemOperand(a64::x1, static_cast<s64>(index * 4)));
+            masm.Cmp(a64::w0, words[index]);
+            masm.B(a64::ne, &stale);
+        }
+    }
+
     masm.Mov(STATE, reinterpret_cast<uintptr_t>(&cpuRegs));
     masm.Mov(CYCLES, 0);
-
     a64::Label leave;
     u32 pc = start_pc;
-    u32 instructions = 0;
-    for (;;) {
-        const u32 code = memRead32(pc);
+    for (const u32 code : words) {
         const R5900::OPCODE& opcode = R5900::GetInstruction(code);
         // The interpreter sees the PC already past the instruction, and reads its operands from cpuRegs.code.
         storeWord(masm, pc + 4, pc_offset);
         storeWord(masm, code, code_offset);
         masm.Add(CYCLES, CYCLES, opcode.cycles);
-        ++instructions;
         pc += 4;
         if (isBranch(code)) {
             callAbsolute(masm, reinterpret_cast<const void*>(&runBranch));
             masm.Add(CYCLES, CYCLES, a64::w0);
-            ++instructions;
             break;
         }
         callAbsolute(masm, reinterpret_cast<const void*>(opcode.interpret));
@@ -100,18 +118,30 @@ CompiledBlock compileBlock(u32 start_pc, u32 stop_pc, u8* writable, const u8* ex
         masm.Ldr(a64::w0, a64::MemOperand(STATE, pc_offset));
         masm.Cmp(a64::w0, pc);
         masm.B(a64::ne, &leave);
-        if (instructions >= MAX_BLOCK_INSTRUCTIONS || pc == stop_pc || (pc & PAGE_MASK) == 0) break;
     }
 
+    a64::Label restore;
     masm.Bind(&leave);
     masm.Mov(a64::w0, CYCLES);
     callAbsolute(masm, reinterpret_cast<const void*>(&commitCycles));
+    masm.Bind(&restore);
     masm.Ldp(STATE, CYCLES.X(), a64::MemOperand(a64::sp, 16));
     masm.Ldp(a64::x29, a64::x30, a64::MemOperand(a64::sp, PROLOGUE_FRAME, a64::PostIndex));
     masm.Ret();
+
+    if (code_to_check) {
+        // Memory no longer holds what this block was compiled from: drop it, and return with the PC still at its
+        // start, so it compiles again from the current code.
+        masm.Bind(&stale);
+        masm.Mov(a64::w0, start_pc);
+        masm.Mov(a64::w1, static_cast<u32>(words.size()));
+        callAbsolute(masm, reinterpret_cast<const void*>(&discardBlock));
+        masm.B(&restore);
+    }
     masm.FinalizeCode();
 
-    return {executable, masm.GetSizeOfCodeGenerated(), instructions};
+    const bool ends_in_branch = isBranch(words.back());
+    return {executable, masm.GetSizeOfCodeGenerated(), static_cast<u32>(words.size()) + (ends_in_branch ? 1 : 0)};
 }
 
 } // namespace bax::jit::ee

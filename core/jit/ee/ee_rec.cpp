@@ -15,6 +15,7 @@
 #include "common/Assertions.h"
 #include "common/Console.h"
 #include "ee/ee_block.h"
+#include "vtlb.h"
 #include "x86/BaseblockEx.h"
 
 #include <cstring>
@@ -40,6 +41,8 @@ std::optional<CodeBuffer> s_code;
 std::size_t s_code_used = 0;
 
 alignas(16) uptr s_lut[LUT_PAGES];
+// Per 64 KB page, what to add to a virtual address to get its physical one (upstream's hwLUT).
+alignas(16) u32 s_physical_lut[LUT_PAGES];
 std::vector<BASEBLOCK> s_lut_memory; // RAM, then the three ROMs; a null entry means not compiled yet.
 std::vector<BASEBLOCK> s_lut_unmapped;
 BaseBlocks s_blocks;
@@ -62,14 +65,15 @@ void mapLut() {
     BASEBLOCK* rom = ram + Ps2MemSize::ExposedRam / 4;
     BASEBLOCK* rom1 = rom + Ps2MemSize::Rom / 4;
     BASEBLOCK* rom2 = rom1 + Ps2MemSize::Rom1 / 4;
-    for (uint page = 0; page < LUT_PAGES; ++page) recLUT_SetPage(s_lut, nullptr, s_lut_unmapped.data(), page, 0, 0);
+    for (uint page = 0; page < LUT_PAGES; ++page)
+        recLUT_SetPage(s_lut, s_physical_lut, s_lut_unmapped.data(), page, 0, 0);
     for (uint page = 0; page < Ps2MemSize::ExposedRam / 0x10000; ++page)
         for (uint base : {0x0000u, 0x2000u, 0x3000u, 0x8000u, 0xa000u, 0xb000u, 0xc000u, 0xd000u})
-            recLUT_SetPage(s_lut, nullptr, ram, base, page, page);
+            recLUT_SetPage(s_lut, s_physical_lut, ram, base, page, page);
     const auto mapRom = [](BASEBLOCK* map, uint first_page, uint end_page) {
         for (uint page = first_page; page < end_page; ++page)
             for (uint base : {0x0000u, 0x8000u, 0xa000u})
-                recLUT_SetPage(s_lut, nullptr, map, base, page, page - first_page);
+                recLUT_SetPage(s_lut, s_physical_lut, map, base, page, page - first_page);
     };
     mapRom(rom, 0x1fc0, 0x2000);
     mapRom(rom1, 0x1e00, 0x1e40);
@@ -82,10 +86,31 @@ void resetBlocks() {
     s_code_used = 0;
 }
 
+// Keeps a block from running stale code, as upstream's x86 recompiler does. Its RAM page is write-protected, so any
+// write to it (EE stores, DMA, disc reads) faults, and vtlb's handler clears the page's blocks and leaves the page
+// unprotected. Code on such a page, or on the kernel's thread-context pages, instead checks its own words before each
+// run. Returns where those words live when the block must check them, or null.
+const u32* protectCode(u32 pc) {
+    const u32 physical = s_physical_lut[pc >> 16] + pc;
+    // The kernel keeps thread contexts at 0x800010c0-0x80001300 and the idle thread's at 0x81000.
+    const bool thread_context = (pc >> 12) == 0x81 || (pc >> 12) == 0x80001;
+    switch (thread_context ? ProtMode_Manual : mmap_GetRamPageInfo(physical)) {
+    case ProtMode_None:
+    case ProtMode_Write:
+        mmap_MarkCountedRamPage(physical);
+        return nullptr;
+    case ProtMode_Manual:
+        return reinterpret_cast<const u32*>(PSM(physical));
+    case ProtMode_NotRequired:
+        return nullptr;
+    }
+    return nullptr;
+}
+
 const u8* compile(u32 pc) {
     if (s_code_used + bax::jit::ee::MAX_BLOCK_BYTES > s_code->size()) resetBlocks();
-    const bax::jit::ee::CompiledBlock block =
-        bax::jit::ee::compileBlock(pc, s_stop_pc, s_code->writable() + s_code_used, s_code->executable() + s_code_used);
+    const bax::jit::ee::CompiledBlock block = bax::jit::ee::compileBlock(
+        pc, s_stop_pc, protectCode(pc), s_code->writable() + s_code_used, s_code->executable() + s_code_used);
     s_code->flush(s_code_used, block.bytes);
     s_code_used = (s_code_used + block.bytes + CODE_ALIGNMENT - 1) / CODE_ALIGNMENT * CODE_ALIGNMENT;
     BASEBLOCKEX* info = s_blocks.New(pc, reinterpret_cast<uptr>(block.entry));
@@ -192,6 +217,10 @@ void recClear(u32 addr, u32 size) {
 } // namespace
 
 namespace bax::jit::ee {
+
+void discardBlock(u32 start_pc, u32 words) {
+    recClear(start_pc, words);
+}
 
 bool runUntil(u32 stop_pc, u32 max_blocks) {
     if (!s_code) return false;

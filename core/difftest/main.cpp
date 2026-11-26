@@ -9,11 +9,13 @@
 // divergence.
 
 #include "CDVD/CDVDcommon.h"
+#include "Counters.h"
 #include "DebugTools/Debug.h"
 #include "Memory.h"
 #include "R3000A.h"
 #include "R5900.h"
 #include "VUmicro.h"
+#include "common/Console.h"
 #include "ee/ee_rec.h"
 #include "ee_cases.h"
 #include "ee_state.h"
@@ -21,6 +23,7 @@
 
 #include <charconv>
 #include <cstdlib>
+#include <limits>
 #include <string>
 #include <string_view>
 
@@ -30,6 +33,8 @@ using namespace bax::difftest;
 
 // Far more steps than any program in a case, so a runaway engine fails instead of hanging.
 constexpr u32 MAX_STEPS = 1024;
+// Half the 32-bit range, as far as Compare can be from Count.
+constexpr u32 COMPARE_DISTANCE = 0x80000000;
 
 struct Engine {
     const char* name;
@@ -67,7 +72,8 @@ bool initializeCore() {
     SysMemory::Reset();
     // cpuReset resets the CDVD drive too, which reads the disc through the current source; there must be one.
     CDVDsys_ChangeSource(CDVD_SourceType::NoDisc);
-    // As VMManager selects them for an interpreter run; branches run event tests, which reach the IOP and the VUs.
+    // As VMManager selects them for an interpreter run. vtlb's page fault handler calls Cpu->Clear when a write hits a
+    // page the recompiler protected, and branches run event tests that reach the IOP and the VUs.
     Cpu = &intCpu;
     psxCpu = &psxInt;
     CpuVU0 = &CpuIntVU0;
@@ -87,6 +93,8 @@ EeState startState(const EeCase& test_case) {
     state.cpu.HI.UQ = test_case.hi;
     state.cpu.LO.UQ = test_case.lo;
     state.cpu.pc = PROGRAM_ADDRESS;
+    // Far from Count, so the COP0 timer interrupt cannot fire during a case.
+    state.cpu.CP0.n.Compare = state.cpu.CP0.n.Count + COMPARE_DISTANCE;
     return state;
 }
 
@@ -104,7 +112,17 @@ std::string disassemble(const EeCase& test_case) {
 // Runs one engine from the start state and returns what it left, or nothing when it never reached the end.
 std::optional<EeState> run(const Engine& engine, const EeState& start, u32 end_pc) {
     restoreEeState(start);
+    // The interpreter runs the event test at its branches and the recompiler's test entry runs none. Keep the test
+    // from changing anything the comparison sees: no counter event and no IOP time falls inside a case.
+    nextStartCounter = cpuRegs.cycle;
+    nextDeltaCounter = std::numeric_limits<s32>::max();
+    EEoCycle = cpuRegs.cycle;
+    EEsCycle = 0;
     if (!engine.run(end_pc)) return std::nullopt;
+    // Bring the COP0 timer up to the cycle count, as the next event test does, so both engines are compared with
+    // the time they spent.
+    cpuRegs.CP0.n.Count += static_cast<u32>(cpuRegs.cycle - cpuRegs.lastCOP0Cycle);
+    cpuRegs.lastCOP0Cycle = cpuRegs.cycle;
     return captureEeState();
 }
 
@@ -149,6 +167,8 @@ int main(int argc, char** argv) {
         fmt::print(stderr, "Usage: {} <alu|shift|branch> <cases> [seed] [--mutate]\n", argv[0]);
         return 2;
     }
+    // The core's warnings and errors go to the terminal, so a failure in CI says why.
+    Log::SetConsoleOutputLevel(LOGLEVEL_WARNING);
     if (!initializeCore()) {
         fmt::print(stderr, "Could not allocate the emulated memory.\n");
         return 1;

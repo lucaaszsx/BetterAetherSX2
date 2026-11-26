@@ -4,6 +4,7 @@
 #include "ee/ee_memory.h"
 
 #include "R5900.h"
+#include "ee/ee_registers.h"
 #include "vtlb.h"
 
 #include <array>
@@ -49,10 +50,6 @@ std::optional<Access> accessFor(u32 code) {
     for (const Access& access : ACCESSES)
         if (access.opcode == code >> 26) return access;
     return std::nullopt;
-}
-
-std::ptrdiff_t gprOffset(u32 index) {
-    return reinterpret_cast<const u8*>(&cpuRegs.GPR.r[index]) - reinterpret_cast<const u8*>(&cpuRegs);
 }
 
 // Moves a value of `bytes` between the host address in x1 and the register at `field` (relative to `base`).

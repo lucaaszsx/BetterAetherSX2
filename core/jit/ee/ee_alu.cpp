@@ -5,6 +5,7 @@
 #include "ee/ee_alu.h"
 
 #include "R5900.h"
+#include "ee/ee_registers.h"
 
 namespace bax::jit::ee {
 namespace {
@@ -23,10 +24,7 @@ class Emitter {
 public:
     Emitter(a64::MacroAssembler& masm, const a64::Register& state) : masm_(masm), state_(state) {}
 
-    a64::MemOperand gpr(u32 index) const {
-        return a64::MemOperand(state_, reinterpret_cast<const u8*>(&cpuRegs.GPR.r[index]) -
-                                           reinterpret_cast<const u8*>(&cpuRegs));
-    }
+    a64::MemOperand gpr(u32 index) const { return a64::MemOperand(state_, gprOffset(index)); }
     void load64(const a64::Register& to, u32 index) { masm_.Ldr(to.X(), gpr(index)); }
     void load32(const a64::Register& to, u32 index) { masm_.Ldr(to.W(), gpr(index)); }
     void store64(u32 index) { masm_.Str(a64::x0, gpr(index)); }

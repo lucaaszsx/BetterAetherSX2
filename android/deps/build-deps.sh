@@ -1,23 +1,37 @@
 #!/usr/bin/env bash
-# Cross-compiles the libraries PCSX2 needs for Android arm64-v8a and installs them into a prefix.
+# Builds the libraries PCSX2 needs and installs them into a prefix: cross-compiled for Android arm64-v8a with the NDK,
+# or with --host for the machine running the script (the CI's Linux arm64 build of the differential tester).
 # Versions and checksums follow upstream PCSX2's .github/workflows/scripts/linux/build-dependencies-qt.sh for the
 # vendored release, so both builds use the same code. Qt, FFmpeg and libbacktrace are left out: the app has no Qt
 # UI, FFmpeg is loaded at runtime only for video capture, and Android has its own crash reporting.
 #
-# Usage: build-deps.sh <ndk-dir> <install-prefix>
+# Usage: build-deps.sh <ndk-dir | --host> <install-prefix>
 
 set -euo pipefail
 
 if [ "$#" -ne 2 ]; then
-    echo 'usage: build-deps.sh <ndk-dir> <install-prefix>' >&2
+    echo 'usage: build-deps.sh <ndk-dir | --host> <install-prefix>' >&2
     exit 2
 fi
 
-NDK="$(realpath "$1")"
 PREFIX="$(realpath -m "$2")"
+ANDROID_PLATFORM=29
+if [ "$1" = '--host' ]; then
+    TARGET='host'
+    TARGET_ARGS=()
+else
+    TARGET='android'
+    NDK="$(realpath "$1")"
+    TARGET_ARGS=(
+        -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake"
+        -DANDROID_ABI=arm64-v8a
+        -DANDROID_PLATFORM="$ANDROID_PLATFORM"
+        -DANDROID_STL=c++_shared
+        -DCMAKE_FIND_ROOT_PATH="$PREFIX"
+    )
+fi
 SCRIPT_DIR="$(realpath "$(dirname "${BASH_SOURCE[0]}")")"
 UPSTREAM="$SCRIPT_DIR/../../upstream/pcsx2"
-ANDROID_PLATFORM=29
 JOBS="$(getconf _NPROCESSORS_ONLN)"
 
 LIBJPEGTURBO=3.2.0
@@ -76,23 +90,19 @@ if ! sha256sum --quiet --check SHASUMS 2> /dev/null; then
 fi
 sha256sum --check --strict SHASUMS
 
-# Configures, builds and installs one CMake project for the Android target. Extra arguments go to the configure step.
+# Configures, builds and installs one CMake project for the target. Extra arguments go to the configure step.
 cmake_install() {
     local source_dir="$1"
     shift
-    cmake -S "$source_dir" -B "$source_dir/build-android" -G Ninja \
-        -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
-        -DANDROID_ABI=arm64-v8a \
-        -DANDROID_PLATFORM="$ANDROID_PLATFORM" \
-        -DANDROID_STL=c++_shared \
+    cmake -S "$source_dir" -B "$source_dir/build-$TARGET" -G Ninja \
+        "${TARGET_ARGS[@]}" \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_PREFIX_PATH="$PREFIX" \
-        -DCMAKE_FIND_ROOT_PATH="$PREFIX" \
         -DCMAKE_INSTALL_PREFIX="$PREFIX" \
         -DBUILD_SHARED_LIBS=ON \
         "$@"
-    cmake --build "$source_dir/build-android" --parallel "$JOBS"
-    cmake --install "$source_dir/build-android"
+    cmake --build "$source_dir/build-$TARGET" --parallel "$JOBS"
+    cmake --install "$source_dir/build-$TARGET"
 }
 
 # Unpacks an archive after removing what a previous run left in its directory.

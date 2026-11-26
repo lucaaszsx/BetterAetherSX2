@@ -106,7 +106,7 @@ jobs:
             -   name: Run 100k cases per class
                 run: |
                     tester=$(find build/difftest -name bax_difftest -type f -executable)
-                    for class in alu shift branch; do
+                    for class in alu shift branch memory; do
                         LD_LIBRARY_PATH="$DEPS_PREFIX/lib" "$tester" "$class" 100000 1
                     done
             # A deliberately wrong candidate must be reported, or the comparison is not checking anything.

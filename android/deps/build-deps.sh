@@ -148,7 +148,10 @@ echo 'Building SDL'
 unpack "$SDL.tar.gz" "$SDL"
 # Subsystems stay at their defaults: SDL's Android glue references the video and sensor code, so turning them off
 # as the desktop build does fails to link.
-cmake_install "$SDL" -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TEST_LIBRARY=OFF
+sdl_args=()
+# The host build only serves the headless differential tester, so it needs no window system libraries.
+if [ "$TARGET" = 'host' ]; then sdl_args=(-DSDL_X11=OFF -DSDL_WAYLAND=OFF); fi
+cmake_install "$SDL" -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TEST_LIBRARY=OFF "${sdl_args[@]}"
 
 echo 'Building PlutoVG'
 unpack "plutovg-$PLUTOVG.tar.gz" "plutovg-$PLUTOVG"

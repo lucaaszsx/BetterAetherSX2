@@ -86,8 +86,10 @@ void CodeBuffer::release() {
 }
 
 bool CodeBuffer::contains(const void* executable_address) const {
-    const auto* address = static_cast<const std::uint8_t*>(executable_address);
-    return address >= executable_ && address < executable_ + size_;
+    // As integers: the address may belong to another mapping, where pointer comparisons are unspecified.
+    const auto address = reinterpret_cast<std::uintptr_t>(executable_address);
+    const auto start = reinterpret_cast<std::uintptr_t>(executable_);
+    return address >= start && address - start < size_;
 }
 
 std::uint8_t* CodeBuffer::writableAt(const void* executable_address) const {

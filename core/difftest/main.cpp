@@ -9,11 +9,14 @@
 // divergence.
 
 #include "CDVD/CDVDcommon.h"
+#include "Config.h"
+#include "Counters.h"
 #include "DebugTools/Debug.h"
 #include "Memory.h"
 #include "R3000A.h"
 #include "R5900.h"
 #include "VUmicro.h"
+#include "common/Console.h"
 #include "ee/ee_rec.h"
 #include "ee_cases.h"
 #include "ee_state.h"
@@ -21,6 +24,7 @@
 
 #include <charconv>
 #include <cstdlib>
+#include <limits>
 #include <string>
 #include <string_view>
 
@@ -28,11 +32,10 @@ namespace {
 
 using namespace bax::difftest;
 
-// Programs run from the start of EE RAM's user area; the case's instructions are followed by nothing the engines
-// reach, because they stop at the end address.
-constexpr u32 PROGRAM_ADDRESS = 0x00100000;
 // Far more steps than any program in a case, so a runaway engine fails instead of hanging.
 constexpr u32 MAX_STEPS = 1024;
+// Half the 32-bit range, as far as Compare can be from Count.
+constexpr u32 COMPARE_DISTANCE = 0x80000000;
 
 struct Engine {
     const char* name;
@@ -72,6 +75,9 @@ bool initializeCore() {
     CDVDsys_ChangeSource(CDVD_SourceType::NoDisc);
     // As VMManager selects them for an interpreter run. vtlb's page fault handler calls Cpu->Clear when a write hits a
     // page the recompiler protected, and branches run event tests that reach the IOP and the VUs.
+    // The interpreter's wait-loop speedhack skips time when a branch repeats the previous one's target, which can
+    // happen across cases; the recompiler has no such skip yet.
+    EmuConfig.Speedhacks.WaitLoop = false;
     Cpu = &intCpu;
     psxCpu = &psxInt;
     CpuVU0 = &CpuIntVU0;
@@ -91,6 +97,8 @@ EeState startState(const EeCase& test_case) {
     state.cpu.HI.UQ = test_case.hi;
     state.cpu.LO.UQ = test_case.lo;
     state.cpu.pc = PROGRAM_ADDRESS;
+    // Far from Count, so the COP0 timer interrupt cannot fire during a case.
+    state.cpu.CP0.n.Compare = state.cpu.CP0.n.Count + COMPARE_DISTANCE;
     return state;
 }
 
@@ -108,7 +116,20 @@ std::string disassemble(const EeCase& test_case) {
 // Runs one engine from the start state and returns what it left, or nothing when it never reached the end.
 std::optional<EeState> run(const Engine& engine, const EeState& start, u32 end_pc) {
     restoreEeState(start);
+    // The interpreter runs the event test at its branches and the recompiler's test entry runs none. Keep the test
+    // from changing anything the comparison sees: no counter event falls inside a case, and the IOP, whose counters
+    // would reach the SPU2 the tester never starts, gets no time to run.
+    nextStartCounter = cpuRegs.cycle;
+    nextDeltaCounter = std::numeric_limits<s32>::max();
+    psxNextStartCounter = psxRegs.cycle;
+    psxNextDeltaCounter = std::numeric_limits<s32>::max();
+    EEoCycle = cpuRegs.cycle;
+    EEsCycle = std::numeric_limits<s32>::min() / 2;
     if (!engine.run(end_pc)) return std::nullopt;
+    // Bring the COP0 timer up to the cycle count, as the next event test does, so both engines are compared with
+    // the time they spent.
+    cpuRegs.CP0.n.Count += static_cast<u32>(cpuRegs.cycle - cpuRegs.lastCOP0Cycle);
+    cpuRegs.lastCOP0Cycle = cpuRegs.cycle;
     return captureEeState();
 }
 
@@ -128,7 +149,8 @@ int runCases(const char* class_name, OpClass op_class, u64 cases, u64 seed) {
         std::optional<EeState> actual = run(CANDIDATE, start, end_pc);
         if (s_mutate && actual) actual->cpu.GPR.r[1].UD[0] ^= 1;
         const std::vector<std::string> diffs =
-            expected && actual ? diffEeState(*expected, *actual) : std::vector<std::string>{"an engine ran away"};
+            expected && actual ? diffEeState(*expected, *actual, cycleTolerance(op_class, test_case))
+                               : std::vector<std::string>{"an engine ran away"};
         if (diffs.empty()) continue;
 
         fmt::print("{} diverged from {} in case {} (seed {}):\n{}", CANDIDATE.name, ORACLE.name, index, seed,
@@ -149,9 +171,11 @@ int main(int argc, char** argv) {
     s_mutate = argc >= 5 && std::string_view(argv[4]) == "--mutate";
     if (!op_class || !parseNumber(argv[2], cases) || (argc >= 4 && !parseNumber(argv[3], seed)) ||
         (argc >= 5 && !s_mutate)) {
-        fmt::print(stderr, "Usage: {} <alu|shift> <cases> [seed] [--mutate]\n", argv[0]);
+        fmt::print(stderr, "Usage: {} <alu|shift|branch> <cases> [seed] [--mutate]\n", argv[0]);
         return 2;
     }
+    // The core's warnings and errors go to the terminal, so a failure in CI says why.
+    Log::SetConsoleOutputLevel(LOGLEVEL_WARNING);
     if (!initializeCore()) {
         fmt::print(stderr, "Could not allocate the emulated memory.\n");
         return 1;

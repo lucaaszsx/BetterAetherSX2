@@ -34,18 +34,27 @@ void restoreEeState(const EeState& state) {
     fpuRegs = state.fpu;
 }
 
-std::vector<std::string> diffEeState(const EeState& expected, const EeState& actual) {
+std::vector<std::string> diffEeState(const EeState& expected, const EeState& actual, u64 cycle_tolerance) {
     std::vector<std::string> diffs;
     for (int index = 0; index < 32; ++index)
         compare128(diffs, fmt::format("GPR[{}]", index), expected.cpu.GPR.r[index], actual.cpu.GPR.r[index]);
     compare128(diffs, "HI", expected.cpu.HI, actual.cpu.HI);
     compare128(diffs, "LO", expected.cpu.LO, actual.cpu.LO);
+    // Count (CP0[9]) follows the cycle count, so it gets the same tolerance below.
+    constexpr int COUNT = 9;
     for (int index = 0; index < 32; ++index)
-        compare(diffs, fmt::format("CP0[{}]", index), expected.cpu.CP0.r[index], actual.cpu.CP0.r[index]);
+        if (index != COUNT)
+            compare(diffs, fmt::format("CP0[{}]", index), expected.cpu.CP0.r[index], actual.cpu.CP0.r[index]);
     compare(diffs, "sa", expected.cpu.sa, actual.cpu.sa);
     compare(diffs, "pc", expected.cpu.pc, actual.cpu.pc);
     compare(diffs, "IsDelaySlot", expected.cpu.IsDelaySlot, actual.cpu.IsDelaySlot);
-    compare(diffs, "cycle", expected.cpu.cycle, actual.cpu.cycle);
+    const u64 cycle_gap = expected.cpu.cycle > actual.cpu.cycle ? expected.cpu.cycle - actual.cpu.cycle
+                                                                : actual.cpu.cycle - expected.cpu.cycle;
+    if (cycle_gap > cycle_tolerance) compare(diffs, "cycle", expected.cpu.cycle, actual.cpu.cycle);
+    const u32 expected_count = expected.cpu.CP0.r[COUNT];
+    const u32 actual_count = actual.cpu.CP0.r[COUNT];
+    const u32 count_gap = expected_count > actual_count ? expected_count - actual_count : actual_count - expected_count;
+    if (count_gap > cycle_tolerance) compare(diffs, "CP0[9] Count", expected_count, actual_count);
     for (int index = 0; index < 32; ++index) {
         compare(diffs, fmt::format("FPR[{}]", index), expected.fpu.fpr[index].UL, actual.fpu.fpr[index].UL);
         compare(diffs, fmt::format("FCR[{}]", index), expected.fpu.fprc[index], actual.fpu.fprc[index]);

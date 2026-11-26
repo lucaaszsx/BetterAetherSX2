@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "ee_state.h"
 
+#include "Memory.h"
+#include "ee_cases.h"
 #include "fmt/format.h"
 
 #include <cstring>
@@ -26,12 +28,14 @@ template <typename T> void compare(std::vector<std::string>& diffs, const std::s
 } // namespace
 
 EeState captureEeState() {
-    return {cpuRegs, fpuRegs};
+    const u8* data = reinterpret_cast<const u8*>(PSM(DATA_ADDRESS));
+    return {cpuRegs, fpuRegs, std::vector<u8>(data, data + DATA_BYTES)};
 }
 
 void restoreEeState(const EeState& state) {
     cpuRegs = state.cpu;
     fpuRegs = state.fpu;
+    std::memcpy(PSM(DATA_ADDRESS), state.data.data(), DATA_BYTES);
 }
 
 std::vector<std::string> diffEeState(const EeState& expected, const EeState& actual, u64 cycle_tolerance) {
@@ -61,6 +65,8 @@ std::vector<std::string> diffEeState(const EeState& expected, const EeState& act
     }
     compare(diffs, "ACC", expected.fpu.ACC.UL, actual.fpu.ACC.UL);
     compare(diffs, "ACCflag", expected.fpu.ACCflag, actual.fpu.ACCflag);
+    for (u32 offset = 0; offset < DATA_BYTES; ++offset)
+        compare(diffs, fmt::format("data[{:#x}]", DATA_ADDRESS + offset), expected.data[offset], actual.data[offset]);
     return diffs;
 }
 

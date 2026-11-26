@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "ee_cases.h"
 
+#include <utility>
+
 namespace bax::difftest {
 
 namespace {
@@ -93,6 +95,44 @@ std::vector<u32> branchProgram(std::mt19937_64& random) {
     return program;
 }
 
+// Loads and stores (primary opcode, access size): LB LH LW LBU LHU LWU LD LQ LWC1, SB SH SW SD SQ SWC1, then the
+// unaligned LWL LWR LDL LDR SWL SWR SDL SDR, which take any address.
+constexpr std::array<std::pair<u32, u32>, 23> MEMORY_OPERATIONS = {{
+    {0x20, 1}, {0x21, 2}, {0x23, 4}, {0x24, 1}, {0x25, 2}, {0x27, 4},  {0x37, 8}, {0x1e, 16},
+    {0x31, 4}, {0x28, 1}, {0x29, 2}, {0x2b, 4}, {0x3f, 8}, {0x1f, 16}, {0x39, 4}, {0x22, 1},
+    {0x26, 1}, {0x1a, 1}, {0x1b, 1}, {0x2a, 1}, {0x2e, 1}, {0x2c, 1},  {0x2d, 1},
+}};
+constexpr u32 MAX_MEMORY_PROGRAM_LENGTH = 12;
+// The register that holds the middle of the data area, so 16-bit offsets reach all of it. Nothing writes it.
+constexpr u32 DATA_BASE_REGISTER = 16;
+// Loads that write a general-purpose register: 0x20-0x27 (LB to LWU, with LWL and LWR), LD, LQ, LDL and LDR.
+bool isLoad(u32 opcode) {
+    constexpr u32 FIRST_LOAD = 0x20, LAST_LOAD = 0x27;
+    return (opcode >= FIRST_LOAD && opcode <= LAST_LOAD) || opcode == 0x37 || opcode == 0x1e || opcode == 0x1a ||
+           opcode == 0x1b;
+}
+
+// An access inside the data area, aligned to its size, so none raises an address error.
+u32 memoryInstruction(std::mt19937_64& random) {
+    const auto [opcode, bytes] = MEMORY_OPERATIONS[random() % MEMORY_OPERATIONS.size()];
+    const s32 half = static_cast<s32>(DATA_BYTES / 2);
+    const s32 offset =
+        static_cast<s32>(random() % (DATA_BYTES - bytes + 1)) / static_cast<s32>(bytes) * static_cast<s32>(bytes) -
+        half;
+    u32 rt = field(random, 5);
+    if (isLoad(opcode) && rt == DATA_BASE_REGISTER) ++rt;
+    return immediate(opcode, DATA_BASE_REGISTER, rt, static_cast<u32>(offset));
+}
+
+// An ALU instruction that leaves the data base register alone.
+u32 aluKeepingBase(std::mt19937_64& random) {
+    u32 code = aluInstruction(random);
+    const bool special = (code >> 26) == 0;
+    const u32 shift = special ? 11 : 16;
+    if (((code >> shift) & 0x1f) == DATA_BASE_REGISTER) code += 1u << shift;
+    return code;
+}
+
 u64 randomValue(std::mt19937_64& random) {
     if (random() % 4 == 0) return EDGE_VALUES[random() % EDGE_VALUES.size()];
     return random();
@@ -111,6 +151,7 @@ std::optional<OpClass> parseOpClass(std::string_view name) {
     if (name == "alu") return OpClass::Alu;
     if (name == "shift") return OpClass::Shift;
     if (name == "branch") return OpClass::Branch;
+    if (name == "memory") return OpClass::Memory;
     return std::nullopt;
 }
 
@@ -122,6 +163,12 @@ EeCase makeCase(OpClass op_class, std::mt19937_64& random) {
     EeCase test_case{};
     if (op_class == OpClass::Branch) {
         test_case.program = branchProgram(random);
+    } else if (op_class == OpClass::Memory) {
+        const u32 length = 1 + static_cast<u32>(random() % MAX_MEMORY_PROGRAM_LENGTH);
+        for (u32 index = 0; index < length; ++index)
+            test_case.program.push_back(random() % 3 ? memoryInstruction(random) : aluKeepingBase(random));
+        test_case.data.resize(DATA_BYTES);
+        for (u8& byte : test_case.data) byte = static_cast<u8>(random());
     } else {
         const u32 length = 1 + static_cast<u32>(random() % MAX_PROGRAM_LENGTH);
         for (u32 index = 0; index < length; ++index)
@@ -131,6 +178,10 @@ EeCase makeCase(OpClass op_class, std::mt19937_64& random) {
     test_case.gprs[0] = {};
     test_case.hi = randomRegister(random);
     test_case.lo = randomRegister(random);
+    if (op_class == OpClass::Memory) {
+        test_case.gprs[DATA_BASE_REGISTER] = {};
+        test_case.gprs[DATA_BASE_REGISTER].lo = DATA_ADDRESS + DATA_BYTES / 2;
+    }
     return test_case;
 }
 

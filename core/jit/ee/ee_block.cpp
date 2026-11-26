@@ -9,9 +9,12 @@
 #include "Memory.h"
 #include "R5900.h"
 #include "R5900OpcodeTables.h"
+#include "bax/jit/a64_branch.h"
 #include "ee/ee_branch.h"
 #include "vixl/aarch64/macro-assembler-aarch64.h"
 
+#include <optional>
+#include <utility>
 #include <vector>
 
 namespace bax::jit::ee {
@@ -75,32 +78,61 @@ void commitCycles(u32 raw_cycles) {
 CompiledBlock compileBlock(u32 start_pc, u32 stop_pc, const u32* code_to_check, const BlockExits& exits, u8* writable,
                            const u8* executable) {
     // First the block's instructions, so a check of all of them can come before any runs. A branch is the last word
-    // read; its delay slot is fetched when it runs.
+    // read, then its delay slot when that lies on the same page and is not a branch itself; the block runs such a slot
+    // inline, and leaves any other to runBranch, which fetches it when it runs.
     std::vector<u32> words;
-    for (u32 pc = start_pc;;) {
+    u32 pc = start_pc;
+    for (;;) {
         words.push_back(memRead32(pc));
         pc += 4;
         if (isBranch(words.back()) || words.size() >= MAX_BLOCK_INSTRUCTIONS || pc == stop_pc || (pc & PAGE_MASK) == 0)
             break;
     }
+    const u32 end_pc = pc;
+    const bool ends_in_branch = isBranch(words.back());
+    std::optional<u32> delay_slot;
+    if (ends_in_branch && (end_pc & PAGE_MASK) != 0 && end_pc != stop_pc && !isBranch(memRead32(end_pc)))
+        delay_slot = memRead32(end_pc);
 
     a64::MacroAssembler masm(writable, MAX_BLOCK_BYTES, a64::PositionIndependentCode);
     const std::ptrdiff_t pc_offset = offsetIn(&cpuRegs.pc);
     const std::ptrdiff_t code_offset = offsetIn(&cpuRegs.code);
+    const std::ptrdiff_t branch_offset = offsetIn(&cpuRegs.branch);
 
     a64::Label stale;
     if (code_to_check) {
+        std::vector<u32> checked = words;
+        if (delay_slot) checked.push_back(*delay_slot);
         masm.Mov(a64::x1, reinterpret_cast<uintptr_t>(code_to_check));
-        for (std::size_t index = 0; index < words.size(); ++index) {
+        for (std::size_t index = 0; index < checked.size(); ++index) {
             masm.Ldr(a64::w0, a64::MemOperand(a64::x1, static_cast<s64>(index * 4)));
-            masm.Cmp(a64::w0, words[index]);
+            masm.Cmp(a64::w0, checked[index]);
             masm.B(a64::ne, &stale);
         }
     }
 
+    // Commits the block's cycles, then goes to the event test once the cycle count reaches the next event, or else to
+    // the next block: through the dispatcher when its address is only known at run time, or through a direct B that
+    // starts out aimed at the dispatcher and that the runtime relinks to the block at next_pc once that block exists.
+    std::vector<LinkSite> links;
+    a64::Label event;
+    const auto emitExit = [&](std::optional<u32> next_pc) {
+        masm.Mov(a64::w0, CYCLES);
+        callAbsolute(masm, reinterpret_cast<const void*>(&commitCycles));
+        masm.Ldr(a64::x0, a64::MemOperand(STATE, offsetIn(&cpuRegs.cycle)));
+        masm.Ldr(a64::x1, a64::MemOperand(STATE, offsetIn(&cpuRegs.nextEventCycle)));
+        masm.Cmp(a64::x0, a64::x1);
+        masm.B(a64::hs, &event);
+        if (!next_pc) return jumpAbsolute(masm, exits.dispatch);
+        vixl::ExactAssemblyScope scope(&masm, a64::kInstructionSize);
+        const u8* site = executable + masm.GetCursorOffset();
+        masm.dc32(*encodeBranch(reinterpret_cast<uptr>(site), reinterpret_cast<uptr>(exits.dispatch)));
+        links.push_back({*next_pc, site});
+    };
+
     masm.Mov(CYCLES, 0);
     a64::Label leave;
-    u32 pc = start_pc;
+    pc = start_pc;
     for (const u32 code : words) {
         const R5900::OPCODE& opcode = R5900::GetInstruction(code);
         // The interpreter sees the PC already past the instruction, and reads its operands from cpuRegs.code.
@@ -108,11 +140,7 @@ CompiledBlock compileBlock(u32 start_pc, u32 stop_pc, const u32* code_to_check, 
         storeWord(masm, code, code_offset);
         masm.Add(CYCLES, CYCLES, opcode.cycles);
         pc += 4;
-        if (isBranch(code)) {
-            callAbsolute(masm, reinterpret_cast<const void*>(&runBranch));
-            masm.Add(CYCLES, CYCLES, a64::w0);
-            break;
-        }
+        if (isBranch(code)) break;
         callAbsolute(masm, reinterpret_cast<const void*>(opcode.interpret));
         // Exceptions, SYSCALL and ERET move the PC elsewhere, and the rest of the block no longer applies.
         masm.Ldr(a64::w0, a64::MemOperand(STATE, pc_offset));
@@ -120,16 +148,50 @@ CompiledBlock compileBlock(u32 start_pc, u32 stop_pc, const u32* code_to_check, 
         masm.B(a64::ne, &leave);
     }
 
-    // The next block comes straight from the dispatcher, unless the cycle count has reached the next event.
-    a64::Label event;
+    if (!ends_in_branch) {
+        emitExit(end_pc);
+    } else if (!delay_slot) {
+        callAbsolute(masm, reinterpret_cast<const void*>(&runBranch));
+        masm.Add(CYCLES, CYCLES, a64::w0);
+        emitExit(std::nullopt);
+    } else {
+        // The branch decides first, as the interpreter does, then the delay slot runs, marked for a taken branch so an
+        // exception there records the branch delay (the exception handler clears the mark and its PC stands).
+        const R5900::OPCODE& slot = R5900::GetInstruction(*delay_slot);
+        const a64::Register& decision = a64::x22;
+        a64::Label run_slot, not_taken, skip_slot, taken_exit, fallthrough_exit;
+        callAbsolute(masm, reinterpret_cast<const void*>(&decideBranch));
+        masm.Mov(decision, a64::x0);
+        masm.Tbnz(decision, BRANCH_SKIPS_SLOT_BIT, &skip_slot);
+        masm.Tbz(decision, BRANCH_TAKEN_BIT, &run_slot);
+        masm.Mov(a64::w0, 1);
+        masm.Str(a64::w0, a64::MemOperand(STATE, branch_offset));
+        masm.Bind(&run_slot);
+        storeWord(masm, end_pc + 4, pc_offset);
+        storeWord(masm, *delay_slot, code_offset);
+        masm.Add(CYCLES, CYCLES, slot.cycles);
+        callAbsolute(masm, reinterpret_cast<const void*>(slot.interpret));
+        masm.Tbz(decision, BRANCH_TAKEN_BIT, &not_taken);
+        masm.Ldr(a64::w0, a64::MemOperand(STATE, branch_offset));
+        masm.Cbz(a64::w0, &leave);
+        masm.Str(a64::wzr, a64::MemOperand(STATE, branch_offset));
+        masm.Str(decision.W(), a64::MemOperand(STATE, pc_offset));
+        masm.B(&taken_exit);
+        masm.Bind(&not_taken);
+        masm.Ldr(a64::w0, a64::MemOperand(STATE, pc_offset));
+        masm.Cmp(a64::w0, end_pc + 4);
+        masm.B(a64::ne, &leave);
+        masm.B(&fallthrough_exit);
+        masm.Bind(&skip_slot);
+        storeWord(masm, end_pc + 4, pc_offset);
+        masm.Bind(&fallthrough_exit);
+        emitExit(end_pc + 4);
+        masm.Bind(&taken_exit);
+        emitExit(staticTarget(words.back(), end_pc - 4));
+    }
+
     masm.Bind(&leave);
-    masm.Mov(a64::w0, CYCLES);
-    callAbsolute(masm, reinterpret_cast<const void*>(&commitCycles));
-    masm.Ldr(a64::x0, a64::MemOperand(STATE, offsetIn(&cpuRegs.cycle)));
-    masm.Ldr(a64::x1, a64::MemOperand(STATE, offsetIn(&cpuRegs.nextEventCycle)));
-    masm.Cmp(a64::x0, a64::x1);
-    masm.B(a64::hs, &event);
-    jumpAbsolute(masm, exits.dispatch);
+    emitExit(std::nullopt);
     masm.Bind(&event);
     jumpAbsolute(masm, exits.event_test);
 
@@ -144,8 +206,8 @@ CompiledBlock compileBlock(u32 start_pc, u32 stop_pc, const u32* code_to_check, 
     }
     masm.FinalizeCode();
 
-    const bool ends_in_branch = isBranch(words.back());
-    return {executable, masm.GetSizeOfCodeGenerated(), static_cast<u32>(words.size()) + (ends_in_branch ? 1 : 0)};
+    return {executable, masm.GetSizeOfCodeGenerated(), static_cast<u32>(words.size()) + (ends_in_branch ? 1 : 0),
+            std::move(links)};
 }
 
 } // namespace bax::jit::ee

@@ -128,6 +128,12 @@ const u8* compile(u32 pc) {
     BASEBLOCKEX* info = s_blocks.New(pc, reinterpret_cast<uptr>(block.entry));
     info->size = block.instructions;
     info->x86size = static_cast<u32>(block.bytes);
+    // Direct links skip the dispatcher, and with it the boot hooks, so they wait until the game's ELF has booted. The
+    // differential tester, which never boots one, links too: its stop address never gets a block, so a link there
+    // stays aimed at the dispatcher.
+    if (VMManager::Internal::HasBootedELF() || s_stop_pc != NO_STOP_PC)
+        for (const bax::jit::ee::LinkSite& link : block.links)
+            s_blocks.Link(link.target_pc, reinterpret_cast<s32*>(reinterpret_cast<uptr>(link.site)));
     return block.entry;
 }
 
@@ -262,6 +268,8 @@ void generateEntryCode() {
     const u8* executable = s_code->executable();
     s_enter = reinterpret_cast<EnterFunction>(reinterpret_cast<uptr>(executable));
     s_exits = {executable + dispatch.GetLocation(), executable + event_test.GetLocation()};
+    // A link whose target block goes away (BaseBlocks::Remove) goes back to the dispatcher.
+    s_blocks.SetJITCompile(s_exits.dispatch);
     s_entry_code_bytes = (masm.GetSizeOfCodeGenerated() + CODE_ALIGNMENT - 1) / CODE_ALIGNMENT * CODE_ALIGNMENT;
     s_code->flush(0, masm.GetSizeOfCodeGenerated());
 }

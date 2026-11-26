@@ -6,7 +6,8 @@ get_filename_component(BAX_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../../../..
 set(BAX_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 add_subdirectory("${BAX_REPO_ROOT}/core" "${CMAKE_BINARY_DIR}/bax-core")
 
-add_library(bax SHARED
+# The host callbacks PCSX2 expects from a frontend, shared by the app library and the device-side test tools.
+add_library(bax_host OBJECT
     AndroidHost.cpp
     ContentUris.cpp
     NativeRuntime.cpp
@@ -14,16 +15,23 @@ add_library(bax SHARED
     TouchControls.cpp
 )
 
-target_include_directories(bax PRIVATE
+set_target_properties(bax_host PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+target_include_directories(bax_host PUBLIC
     "${CMAKE_BINARY_DIR}/common/include"
     "${CMAKE_SOURCE_DIR}"
     "${CMAKE_SOURCE_DIR}/pcsx2"
 )
 
-target_link_libraries(bax PRIVATE
+target_link_libraries(bax_host PUBLIC
     PCSX2_FLAGS
     PCSX2
     bax_core
     android
     log
 )
+
+add_library(bax SHARED)
+target_link_libraries(bax PRIVATE bax_host)
+
+add_subdirectory("${BAX_REPO_ROOT}/core/difftest" "${CMAKE_BINARY_DIR}/bax-difftest")

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Runtime of the AArch64 EE recompiler: its code memory, the block table in upstream's recLUT layout (so vtlb and
-// Clear keep working), a dispatch loop that calls blocks as functions, and the R5900cpu entry points VMManager
-// selects. Direct branches between blocks replace the loop later.
+// Clear keep working), the generated entry code and dispatcher that run blocks back to back, and the R5900cpu entry
+// points VMManager selects.
 
 #include "ee/ee_rec.h"
 
@@ -15,12 +15,15 @@
 #include "common/Assertions.h"
 #include "common/Console.h"
 #include "ee/ee_block.h"
+#include "vixl/aarch64/macro-assembler-aarch64.h"
 #include "vtlb.h"
 #include "x86/BaseblockEx.h"
 
+#include <algorithm>
 #include <cstring>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -47,7 +50,16 @@ std::vector<BASEBLOCK> s_lut_memory; // RAM, then the three ROMs; a null entry m
 std::vector<BASEBLOCK> s_lut_unmapped;
 BaseBlocks s_blocks;
 
+// The generated entry code at the start of the code buffer; blocks follow it.
+using EnterFunction = void (*)();
+EnterFunction s_enter = nullptr;
+bax::jit::ee::BlockExits s_exits = {};
+std::size_t s_entry_code_bytes = 0;
+
 u32 s_stop_pc = NO_STOP_PC;
+// The differential tester's limit on cycles, so a program that never reaches its end cannot hang it.
+constexpr u64 TEST_CYCLE_BUDGET = 1u << 20;
+u64 s_test_deadline = 0;
 bool s_executing = false;
 bool s_exit_requested = false;
 bool s_needs_reset = false;
@@ -83,7 +95,7 @@ void mapLut() {
 void resetBlocks() {
     mapLut();
     s_blocks.Reset();
-    s_code_used = 0;
+    s_code_used = s_entry_code_bytes;
 }
 
 // Keeps a block from running stale code, as upstream's x86 recompiler does. Its RAM page is write-protected, so any
@@ -110,13 +122,12 @@ const u32* protectCode(u32 pc) {
 const u8* compile(u32 pc) {
     if (s_code_used + bax::jit::ee::MAX_BLOCK_BYTES > s_code->size()) resetBlocks();
     const bax::jit::ee::CompiledBlock block = bax::jit::ee::compileBlock(
-        pc, s_stop_pc, protectCode(pc), s_code->writable() + s_code_used, s_code->executable() + s_code_used);
+        pc, s_stop_pc, protectCode(pc), s_exits, s_code->writable() + s_code_used, s_code->executable() + s_code_used);
     s_code->flush(s_code_used, block.bytes);
     s_code_used = (s_code_used + block.bytes + CODE_ALIGNMENT - 1) / CODE_ALIGNMENT * CODE_ALIGNMENT;
     BASEBLOCKEX* info = s_blocks.New(pc, reinterpret_cast<uptr>(block.entry));
     info->size = block.instructions;
     info->x86size = static_cast<u32>(block.bytes);
-    entryFor(pc)->SetFnptr(reinterpret_cast<uptr>(block.entry));
     return block.entry;
 }
 
@@ -175,21 +186,84 @@ void runBootHooks(u32 pc) {
     }
 }
 
-// Runs the block at cpuRegs.pc, compiling it first if needed. False when the PC cannot hold code.
-bool runNextBlock() {
+// The dispatcher's slow path, for a PC whose table entry is empty: returns the block to run there, compiling it if
+// needed, or null to leave recompiled code (the tester's stop address, or a PC that cannot hold code). While the BIOS
+// is still booting the disc, blocks stay out of the table so every block comes through here for the boot hooks.
+const u8* dispatchMiss() {
     const u32 pc = cpuRegs.pc;
-    if (!VMManager::Internal::HasBootedELF()) runBootHooks(pc);
+    if (pc == s_stop_pc) return nullptr;
+    const bool booted = VMManager::Internal::HasBootedELF();
+    if (!booted) runBootHooks(pc);
     BASEBLOCK* entry = entryFor(pc);
     const bool unmapped = entry >= s_lut_unmapped.data() && entry < s_lut_unmapped.data() + s_lut_unmapped.size();
     if (unmapped || (pc & 3) != 0) {
         Host::ReportErrorAsync("R5900 Exception", fmt::format("Jump to an {} address (PC: 0x{:08x})",
                                                               unmapped ? "unmapped" : "unaligned", pc));
         VMManager::SetPaused(true);
-        return false;
+        return nullptr;
     }
-    const uptr function = entry->GetFnptr();
-    reinterpret_cast<void (*)()>(function ? function : reinterpret_cast<uptr>(compile(pc)))();
-    return true;
+    const BASEBLOCKEX* known = s_blocks.Get(pc);
+    const u8* block = known && known->startpc == pc ? reinterpret_cast<const u8*>(known->fnptr) : compile(pc);
+    if (booted) entry->SetFnptr(reinterpret_cast<uptr>(block));
+    return block;
+}
+
+// Runs the event test once the cycle count reaches the next event. Returns false to leave recompiled code: an exit
+// was requested, or the tester's cycle budget ran out.
+bool eventTest() {
+    _cpuEventTest_Shared();
+    if (s_stop_pc != NO_STOP_PC && cpuRegs.cycle >= s_test_deadline) return false;
+    return !std::exchange(s_exit_requested, false);
+}
+
+// Generates, at the start of the code buffer, the entry code that recExecute calls and the dispatcher blocks jump
+// to. Entry saves the registers blocks use and points STATE at cpuRegs; the dispatcher looks the PC up in the block
+// table and jumps to the block, falling back to dispatchMiss; leaving restores the registers and returns.
+void generateEntryCode() {
+    namespace a64 = vixl::aarch64;
+    a64::MacroAssembler masm(s_code->writable(), bax::jit::ee::MAX_BLOCK_BYTES, a64::PositionIndependentCode);
+    a64::Label dispatch, miss, event_test, leave;
+    masm.Stp(a64::x29, a64::x30, a64::MemOperand(a64::sp, -48, a64::PreIndex));
+    masm.Mov(a64::x29, a64::sp);
+    masm.Stp(a64::x19, a64::x20, a64::MemOperand(a64::sp, 16));
+    masm.Stp(a64::x21, a64::x22, a64::MemOperand(a64::sp, 32));
+    masm.Mov(a64::x19, reinterpret_cast<uintptr_t>(&cpuRegs));
+
+    // PC_GETBLOCK_: s_lut[pc >> 16] + pc * 2 bytes is the BASEBLOCK; its first field is the block's address.
+    masm.Bind(&dispatch);
+    masm.Ldr(a64::w0, a64::MemOperand(a64::x19, reinterpret_cast<const u8*>(&cpuRegs.pc) -
+                                                    reinterpret_cast<const u8*>(&cpuRegs)));
+    masm.Mov(a64::x1, reinterpret_cast<uintptr_t>(s_lut));
+    masm.Lsr(a64::w2, a64::w0, 16);
+    masm.Ldr(a64::x1, a64::MemOperand(a64::x1, a64::x2, a64::LSL, 3));
+    masm.Add(a64::x1, a64::x1, a64::Operand(a64::x0, a64::LSL, 1));
+    masm.Ldr(a64::x1, a64::MemOperand(a64::x1));
+    masm.Cbz(a64::x1, &miss);
+    masm.Br(a64::x1);
+
+    masm.Bind(&miss);
+    masm.Mov(a64::x9, reinterpret_cast<uintptr_t>(&dispatchMiss));
+    masm.Blr(a64::x9);
+    masm.Cbz(a64::x0, &leave);
+    masm.Br(a64::x0);
+
+    masm.Bind(&event_test);
+    masm.Mov(a64::x9, reinterpret_cast<uintptr_t>(&eventTest));
+    masm.Blr(a64::x9);
+    masm.Cbnz(a64::w0, &dispatch);
+
+    masm.Bind(&leave);
+    masm.Ldp(a64::x21, a64::x22, a64::MemOperand(a64::sp, 32));
+    masm.Ldp(a64::x19, a64::x20, a64::MemOperand(a64::sp, 16));
+    masm.Ldp(a64::x29, a64::x30, a64::MemOperand(a64::sp, 48, a64::PostIndex));
+    masm.Ret();
+    masm.FinalizeCode();
+
+    const u8* executable = s_code->executable();
+    s_enter = reinterpret_cast<EnterFunction>(reinterpret_cast<uptr>(executable));
+    s_exits = {executable + dispatch.GetLocation(), executable + event_test.GetLocation()};
+    s_entry_code_bytes = (masm.GetSizeOfCodeGenerated() + CODE_ALIGNMENT - 1) / CODE_ALIGNMENT * CODE_ALIGNMENT;
+    s_code->flush(0, masm.GetSizeOfCodeGenerated());
 }
 
 void recReserve() {
@@ -201,6 +275,7 @@ void recReserve() {
     }
     INFO_LOG("EE recompiler: {} MB of code memory, writable and executable through separate views.",
              s_code->size() / _1mb);
+    generateEntryCode();
     resetBlocks();
 }
 
@@ -229,11 +304,7 @@ void recExecute() {
         resetBlocks();
     }
     s_executing = true;
-    while (runNextBlock()) {
-        if (cpuRegs.cycle < cpuRegs.nextEventCycle) continue;
-        _cpuEventTest_Shared();
-        if (s_exit_requested) break;
-    }
+    s_enter();
     s_exit_requested = false;
     s_executing = false;
 }
@@ -266,15 +337,16 @@ void discardBlock(u32 start_pc, u32 words) {
     recClear(start_pc, words);
 }
 
-bool runUntil(u32 stop_pc, u32 max_blocks) {
+bool runUntil(u32 stop_pc) {
     if (!s_code) return false;
     // Blocks compiled for another stop address may run past this one.
     if (stop_pc != s_stop_pc) {
         s_stop_pc = stop_pc;
         resetBlocks();
     }
-    for (u32 block = 0; block < max_blocks && cpuRegs.pc != stop_pc; ++block)
-        if (!runNextBlock()) return false;
+    s_test_deadline = cpuRegs.cycle + TEST_CYCLE_BUDGET;
+    cpuRegs.nextEventCycle = std::min(cpuRegs.nextEventCycle, s_test_deadline);
+    s_enter();
     return cpuRegs.pc == stop_pc;
 }
 

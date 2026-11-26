@@ -14,6 +14,13 @@ struct CompiledBlock {
     u32 instructions; // EE instructions the block covers, a branch's delay slot included.
 };
 
+// Where a block goes when it ends, as executable addresses in the runtime's entry code: the dispatcher, which jumps
+// to the block at cpuRegs.pc, or the event test, once the cycle count reaches cpuRegs.nextEventCycle.
+struct BlockExits {
+    const void* dispatch;
+    const void* event_test;
+};
+
 // The longest block, in instructions before its branch; with the epilogue it fits well inside MAX_BLOCK_BYTES.
 inline constexpr u32 MAX_BLOCK_INSTRUCTIONS = 128;
 inline constexpr std::size_t MAX_BLOCK_BYTES = 16 * 1024;
@@ -28,7 +35,9 @@ inline constexpr std::size_t MAX_BLOCK_BYTES = 16 * 1024;
 //
 // This first tier calls the interpreter for every instruction, so it covers every opcode; native code for the common
 // classes replaces those calls class by class.
-CompiledBlock compileBlock(u32 start_pc, u32 stop_pc, const u32* code_to_check, u8* writable, const u8* executable);
+// Blocks are not functions: they run with STATE set by the runtime's entry code and end by jumping to `exits`.
+CompiledBlock compileBlock(u32 start_pc, u32 stop_pc, const u32* code_to_check, const BlockExits& exits, u8* writable,
+                           const u8* executable);
 
 // Forgets the block of `words` instructions at start_pc, whose code changed; provided by the runtime.
 void discardBlock(u32 start_pc, u32 words);

@@ -11,6 +11,10 @@ namespace bax::jit::iop {
 // The longest IOP block, in instructions before its branch, and the room one takes at most in the code buffer.
 inline constexpr u32 MAX_BLOCK_INSTRUCTIONS = 128;
 inline constexpr std::size_t MAX_BLOCK_BYTES = 16 * 1024;
+// One byte per 4 KB page of IOP RAM, nonzero when the page holds compiled code; provided by the runtime. It stays at
+// one address until the runtime discards every block.
+const u8* codePages();
+
 // The interpreter's IRX-injection hack runs before the instruction at this address, so no block runs across it.
 inline constexpr u32 IRX_INJECT_PC = 0x1630;
 
@@ -46,6 +50,10 @@ CompiledBlock compileBlock(u32 start_pc, const BlockExits& exits, u8* writable, 
 // Whether the interpreter runs a hook when it reaches `pc`: the IRX injection, or a PS1 BIOS call. Blocks at these
 // addresses always go through the runtime's dispatcher, which runs the hook.
 bool isHookAddress(u32 pc);
+
+// One byte per 4 KB page of IOP RAM, nonzero when the page holds compiled code; provided by the runtime. It stays at
+// one address until the runtime discards every block.
+const u8* codePages();
 
 // The interpreter's IRX-injection hack (execI), run before the instruction at IRX_INJECT_PC.
 void injectIrx();

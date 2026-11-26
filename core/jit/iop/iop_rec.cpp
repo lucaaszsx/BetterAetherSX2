@@ -44,8 +44,9 @@ alignas(16) uptr s_lut[LUT_PAGES];
 std::vector<BASEBLOCK> s_lut_memory; // RAM, then the three ROMs; a null entry means not compiled yet.
 std::vector<BASEBLOCK> s_lut_unmapped;
 BaseBlocks s_blocks;
-// Per 4 KB page of IOP RAM, whether a block was compiled from it, so Clear (called on every IOP store) is cheap.
-std::vector<bool> s_code_pages;
+// Per 4 KB page of IOP RAM, 1 when a block was compiled from it, so Clear (called on every IOP store) is cheap and
+// native stores know when to take the slow path.
+std::vector<u8> s_code_pages;
 
 // The generated entry code at the start of the code buffer; blocks follow it.
 using EnterFunction = void (*)();
@@ -66,7 +67,7 @@ BASEBLOCK* entryFor(u32 pc) {
 void mapLut() {
     s_lut_memory.assign((Ps2MemSize::ExposedIopRam + Ps2MemSize::Rom + Ps2MemSize::Rom1 + Ps2MemSize::Rom2) / 4, {});
     s_lut_unmapped.assign(ENTRIES_PER_PAGE, {});
-    s_code_pages.assign(Ps2MemSize::ExposedIopRam >> CODE_PAGE_BITS, false);
+    s_code_pages.assign(Ps2MemSize::ExposedIopRam >> CODE_PAGE_BITS, 0);
     BASEBLOCK* ram = s_lut_memory.data();
     BASEBLOCK* rom = ram + Ps2MemSize::ExposedIopRam / 4;
     BASEBLOCK* rom1 = rom + Ps2MemSize::Rom / 4;
@@ -105,7 +106,7 @@ const u8* compile(u32 pc) {
     if (start < Ps2MemSize::ExposedIopRam) {
         const u32 last_page = (start + block.instructions * 4 - 1) >> CODE_PAGE_BITS;
         for (u32 page = start >> CODE_PAGE_BITS; page <= last_page && page < s_code_pages.size(); ++page)
-            s_code_pages[page] = true;
+            s_code_pages[page] = 1;
     }
     for (const bax::jit::iop::LinkSite& link : block.links)
         s_blocks.Link(physical(link.target_pc), reinterpret_cast<s32*>(reinterpret_cast<uptr>(link.site)));
@@ -221,7 +222,7 @@ void recClear(u32 address, u32 size) {
     if (start < Ps2MemSize::ExposedIopRam) {
         bool has_code = false;
         for (u32 page = start >> CODE_PAGE_BITS; page <= (end - 1) >> CODE_PAGE_BITS && !has_code; ++page)
-            has_code = page < s_code_pages.size() && s_code_pages[page];
+            has_code = page < s_code_pages.size() && s_code_pages[page] != 0;
         if (!has_code) return;
     }
     for (int index = s_blocks.LastIndex(end - 4); index >= 0; --index) {
@@ -252,6 +253,10 @@ namespace bax::jit::iop {
 
 const CodeBuffer* codeBuffer() {
     return s_code ? &*s_code : nullptr;
+}
+
+const u8* codePages() {
+    return s_code_pages.data();
 }
 
 } // namespace bax::jit::iop

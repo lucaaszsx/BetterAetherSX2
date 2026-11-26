@@ -9,6 +9,7 @@ add_library(bax_jit OBJECT
     ee/ee_rec.cpp
     iop/iop_alu.cpp
     iop/iop_block.cpp
+    iop/iop_memory.cpp
     iop/iop_rec.cpp
 )
 

@@ -13,6 +13,7 @@
 #include "R3000A.h"
 #include "bax/jit/a64_branch.h"
 #include "iop/iop_alu.h"
+#include "iop/iop_memory.h"
 #include "vixl/aarch64/macro-assembler-aarch64.h"
 
 #include <optional>
@@ -154,11 +155,17 @@ void subtractPs1Cycles(u32 iop_cycles) {
     psxRegs.iopCycleEECarry = scaled % PS1_CLOCK_DENOMINATOR;
 }
 
-// Runs `code` as native code when it is an integer instruction, else through the interpreter's function.
-void emitInstruction(a64::MacroAssembler& masm, u32 code) {
-    if (emitNativeAlu(masm, STATE, code)) return;
+void emitInterpreterCall(a64::MacroAssembler& masm, u32 code) {
     storeWord(masm, code, a64::MemOperand(STATE, offsetIn(&psxRegs.code)));
     callAbsolute(masm, reinterpret_cast<const void*>(psxBSC[opcodeOf(code)]));
+}
+
+// Runs `code` as native code when it is an integer instruction or a load or store, else through the interpreter's
+// function.
+void emitInstruction(a64::MacroAssembler& masm, u32 code) {
+    if (emitNativeAlu(masm, STATE, code)) return;
+    if (!isFastMemoryAccess(code)) return emitInterpreterCall(masm, code);
+    emitMemoryAccess(masm, STATE, code, codePages(), [&] { emitInterpreterCall(masm, code); });
 }
 
 // Writes the branch's link register, then decides it: TAKEN for a conditional branch, TARGET for a jump register.

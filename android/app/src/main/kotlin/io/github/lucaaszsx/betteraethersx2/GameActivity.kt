@@ -28,38 +28,48 @@ class GameActivity :
     private var sessionStarted = false
     private val gamepad by lazy { GamepadInput(PadState(runtime::setPadInput)) }
     private val touch by lazy { TouchInput(runtime::touch) }
+    private lateinit var gameView: SurfaceView
+    private var coreReady = false
+    private var resumed = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.hideSystemBars()
-        val surface = SurfaceView(this)
-        surface.holder.addCallback(this)
+        gameView = SurfaceView(this)
+        gameView.holder.addCallback(this)
         // The game draws its own touch controls, so the view only hands the fingers over.
-        surface.setOnTouchListener { _, event -> true.also { touch.onTouch(event) } }
+        gameView.setOnTouchListener { _, event -> true.also { touch.onTouch(event) } }
         // This can be the first screen of the process: started from adb, or restored after Android ended the process
         // in the background. The surface starts the session, so it goes on screen only once the core is ready.
         thread(name = "PrepareCore") {
             val ready = (application as BetterApp).prepareRuntime()
-            runOnUiThread { showWhenReady(ready, surface) }
+            runOnUiThread { onCorePrepared(ready) }
         }
     }
 
-    private fun showWhenReady(
-        ready: Boolean,
-        surface: SurfaceView,
-    ) {
+    private fun onCorePrepared(ready: Boolean) {
         if (isDestroyed) return
         // The library screen says why the core is not ready, so a failure here only closes the game.
-        if (ready) setContentView(surface) else finish()
+        if (!ready) return finish()
+        coreReady = true
+        showGameWhenResumed()
+    }
+
+    // A session started while paused would boot running: a pause sent before its VM exists is dropped.
+    private fun showGameWhenResumed() {
+        if (coreReady && resumed && gameView.parent == null) setContentView(gameView)
     }
 
     override fun onResume() {
         super.onResume()
+        resumed = true
         runtime.setPaused(false)
+        showGameWhenResumed()
     }
 
     override fun onPause() {
+        resumed = false
         runtime.setPaused(true)
         super.onPause()
     }

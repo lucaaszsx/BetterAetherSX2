@@ -33,12 +33,14 @@ u8* iopRam(u32 address) {
 
 void writeProgram(const IopCase& test_case) {
     std::memcpy(iopRam(IOP_PROGRAM_ADDRESS), test_case.program.data(), test_case.program.size() * sizeof(u32));
-    psxCpu->Clear(IOP_PROGRAM_ADDRESS, static_cast<u32>(test_case.program.size()));
+    psxRec.Clear(IOP_PROGRAM_ADDRESS, static_cast<u32>(test_case.program.size()));
 }
 
 // Runs one engine from the case's start. Counter events, interrupts and PS1 mode stay off, so the event test the
 // interpreter runs at each branch changes nothing the comparison sees.
 IopState run(R3000Acpu& engine, const IopCase& test_case) {
+    // IOP stores clear code through psxCpu, as they do in a game run.
+    psxCpu = &engine;
     std::memcpy(psxRegs.GPR.r, test_case.gprs.data(), sizeof(u32) * GPR_COUNT);
     std::memcpy(iopRam(IOP_DATA_ADDRESS), test_case.data.data(), IOP_DATA_BYTES);
     psxRegs.pc = IOP_PROGRAM_ADDRESS;
@@ -82,8 +84,7 @@ std::string disassemble(const IopCase& test_case) {
 
 int runIopCases(const char* class_name, IopClass iop_class, u64 cases, u64 seed, bool mutate) {
     R3000Acpu& oracle = psxInt;
-    // Until the IOP recompiler joins, the candidate is the interpreter too, which checks the harness itself.
-    R3000Acpu& candidate = psxInt;
+    R3000Acpu& candidate = psxRec;
     for (u64 index = 0; index < cases; ++index) {
         std::mt19937_64 random(seed + index);
         const IopCase test_case = makeIopCase(iop_class, random);

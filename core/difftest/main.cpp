@@ -85,6 +85,7 @@ bool initializeCore() {
     CpuVU1 = &CpuIntVU1;
     cpuReset();
     recCpu.Reserve();
+    psxRec.Reserve();
     return true;
 }
 

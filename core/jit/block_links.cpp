@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Block links for upstream's BaseBlocks: a link site lies in the code memory of the recompiler that compiled it, and
-// is rewritten through that memory's writable view.
+// Block links for upstream's BaseBlocks, which both recompilers use: a link site lies in the code memory of the
+// recompiler that compiled it, and is rewritten through that memory's writable view.
 
 #include "bax/jit/a64_branch.h"
 #include "common/Assertions.h"
 #include "ee/ee_rec.h"
+#include "iop/iop_rec.h"
 #include "x86/BaseblockEx.h"
 
 #include <cstring>
@@ -23,6 +24,7 @@ bool setBranchTarget(const bax::jit::CodeBuffer* code, uptr site, uptr target) {
 } // namespace
 
 void BaseBlocks_SetBranchTarget(uptr site, uptr target) {
-    const bool linked = setBranchTarget(bax::jit::ee::codeBuffer(), site, target);
-    pxAssertRel(linked, "A block link lies outside the recompiler's code memory.");
+    const bool linked = setBranchTarget(bax::jit::ee::codeBuffer(), site, target) ||
+                        setBranchTarget(bax::jit::iop::codeBuffer(), site, target);
+    pxAssertRel(linked, "A block link lies outside both recompilers' code memory.");
 }

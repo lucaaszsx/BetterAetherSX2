@@ -29,6 +29,7 @@ How to work in this repository, for humans and agents.
 ```sh
 cmake -S core -B build/core -G Ninja && cmake --build build/core && ctest --test-dir build/core
 clang-format --dry-run --Werror $(git ls-files 'core/*.cpp' 'core/*.h')
+shellcheck $(git ls-files '*.sh') && actionlint
 cd android && ./gradlew ktlintCheck detekt testDebugUnitTest assembleDebug
 ```
 

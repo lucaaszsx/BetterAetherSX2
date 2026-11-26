@@ -25,6 +25,28 @@ jobs:
             -   name: Check formatting
                 run: git ls-files -z 'core/*.cpp' 'core/*.h' 'core/*.hpp' 'android/*.cpp' 'android/*.h' | xargs -0 --no-run-if-empty clang-format --dry-run --Werror
 
+    scripts:
+        name: Shell scripts and workflows
+        runs-on: ubuntu-24.04
+        env:
+            SHELLCHECK_VERSION: 0.11.0
+            ACTIONLINT_VERSION: 1.7.12
+        steps:
+            -   uses: actions/checkout@v4
+            -   name: Install shellcheck and actionlint
+                run: |
+                    mkdir -p "$RUNNER_TEMP/bin"
+                    curl -sSfL "https://github.com/koalaman/shellcheck/releases/download/v$SHELLCHECK_VERSION/shellcheck-v$SHELLCHECK_VERSION.linux.x86_64.tar.xz" \
+                        | tar -xJ --strip-components=1 -C "$RUNNER_TEMP/bin" "shellcheck-v$SHELLCHECK_VERSION/shellcheck"
+                    curl -sSfL "https://github.com/rhysd/actionlint/releases/download/v$ACTIONLINT_VERSION/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
+                        | tar -xz -C "$RUNNER_TEMP/bin" actionlint
+                    echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+            -   name: Check shell scripts
+                run: git ls-files -z '*.sh' | xargs -0 --no-run-if-empty shellcheck
+            # actionlint also runs shellcheck on each workflow's run: blocks.
+            -   name: Check workflows
+                run: actionlint
+
     core:
         name: Native core (host build and tests)
         runs-on: ubuntu-24.04

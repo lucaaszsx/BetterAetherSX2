@@ -28,6 +28,9 @@ public:
     std::uint8_t* writable() const { return writable_; }
     const std::uint8_t* executable() const { return executable_; }
 
+    // Whether an executable-view address lies inside the buffer.
+    bool contains(const void* executable_address) const;
+
     // The writable address of the byte at an executable-view address inside the buffer.
     std::uint8_t* writableAt(const void* executable_address) const;
 

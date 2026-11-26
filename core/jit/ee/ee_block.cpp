@@ -12,6 +12,7 @@
 #include "bax/jit/a64_branch.h"
 #include "ee/ee_alu.h"
 #include "ee/ee_branch.h"
+#include "ee/ee_branch_native.h"
 #include "ee/ee_memory.h"
 #include "vixl/aarch64/macro-assembler-aarch64.h"
 
@@ -204,8 +205,10 @@ CompiledBlock compileBlock(u32 start_pc, u32 stop_pc, const u32* code_to_check, 
         const R5900::OPCODE& slot = R5900::GetInstruction(*delay_slot);
         const a64::Register& decision = a64::x22;
         a64::Label run_slot, not_taken, skip_slot, taken_exit, fallthrough_exit;
-        callAbsolute(masm, reinterpret_cast<const void*>(&decideBranch));
-        masm.Mov(decision, a64::x0);
+        if (!emitBranchDecision(masm, STATE, decision, words.back(), end_pc - 4)) {
+            callAbsolute(masm, reinterpret_cast<const void*>(&decideBranch));
+            masm.Mov(decision, a64::x0);
+        }
         masm.Tbnz(decision, BRANCH_SKIPS_SLOT_BIT, &skip_slot);
         masm.Tbz(decision, BRANCH_TAKEN_BIT, &run_slot);
         masm.Mov(a64::w0, 1);

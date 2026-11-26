@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "ee_cases.h"
 
+#include <optional>
 #include <utility>
 
 namespace bax::difftest {
@@ -19,6 +20,9 @@ constexpr std::array<u32, 9> SHIFT_BY_AMOUNT_FUNCTIONS = {0x00, 0x02, 0x03, 0x38
 constexpr std::array<u32, 8> COMPARE_BRANCH_OPCODES = {0x04, 0x05, 0x06, 0x07, 0x14, 0x15, 0x16, 0x17};
 constexpr std::array<u32, 8> REGIMM_BRANCHES = {0x00, 0x01, 0x02, 0x03, 0x10, 0x11, 0x12, 0x13};
 constexpr u32 REGIMM = 0x01, J = 0x02, JAL = 0x03, COP0 = 0x10, COP1 = 0x11, COP_BRANCH = 0x08;
+constexpr u32 JR_FUNCTION = 0x08, JALR_FUNCTION = 0x09;
+// The register a JR or JALR jumps through ($t9, as compilers use for JALR); no other instruction in a case writes it.
+constexpr u32 JUMP_REGISTER = 25;
 
 // Values that tend to expose sign extension, carry and overflow mistakes, mixed with plain random ones.
 constexpr std::array<u64, 8> EDGE_VALUES = {
@@ -54,13 +58,33 @@ u32 shiftInstruction(std::mt19937_64& random) {
 }
 
 // A branch at `position` whose target is the instruction at `target` (the program's length means its end).
-u32 branchInstruction(std::mt19937_64& random, u32 position, u32 target) {
+// An ALU instruction that leaves `kept` alone.
+u32 aluKeeping(std::mt19937_64& random, u32 kept) {
+    u32 code = aluInstruction(random);
+    const bool special = (code >> 26) == 0;
+    const u32 shift = special ? 11 : 16;
+    if (((code >> shift) & 0x1f) == kept) code += 1u << shift;
+    return code;
+}
+
+// A branch at `position` whose target is the instruction at `target` (the program's length means its end). A JR or
+// JALR jumps through JUMP_REGISTER, which the case sets to the target; only one per program, since the register
+// holds one address.
+u32 branchInstruction(std::mt19937_64& random, u32 position, u32 target, std::optional<u32>& register_target) {
     // Branch offsets count words from the delay slot.
     const u32 offset = target - (position + 1);
     // Comparing a register with itself makes BEQ/BNE outcomes certain, so both directions get exercised.
     const u32 rs = field(random, 5);
     const u32 rt = random() % 4 == 0 ? rs : field(random, 5);
-    switch (random() % 5) {
+    const u32 kind = random() % 6;
+    if (kind == 5 && !register_target) {
+        register_target = target;
+        u32 link = field(random, 5);
+        if (link == JUMP_REGISTER) ++link;
+        return random() % 2 ? special(JUMP_REGISTER, 0, 0, 0, JR_FUNCTION)
+                            : special(JUMP_REGISTER, 0, link, 0, JALR_FUNCTION);
+    }
+    switch (kind) {
     case 0:
         return immediate(pick(random, COMPARE_BRANCH_OPCODES), rs, rt, offset);
     case 1:
@@ -76,7 +100,7 @@ u32 branchInstruction(std::mt19937_64& random, u32 position, u32 target) {
 
 // ALU instructions with forward branches among them. Every target lies inside the program or at its end, and no
 // branch sits in a delay slot or last, so both engines always reach the end.
-std::vector<u32> branchProgram(std::mt19937_64& random) {
+std::vector<u32> branchProgram(std::mt19937_64& random, std::optional<u32>& register_target) {
     const u32 length = 2 + static_cast<u32>(random() % (MAX_BRANCH_PROGRAM_LENGTH - 1));
     std::vector<u32> program(length);
     bool in_delay_slot = false;
@@ -85,10 +109,10 @@ std::vector<u32> branchProgram(std::mt19937_64& random) {
         if (can_branch && random() % 3 == 0) {
             // From the instruction after the delay slot up to the program's end.
             const u32 target = position + 2 + static_cast<u32>(random() % (length - position - 1));
-            program[position] = branchInstruction(random, position, target);
+            program[position] = branchInstruction(random, position, target, register_target);
             in_delay_slot = true;
         } else {
-            program[position] = aluInstruction(random);
+            program[position] = aluKeeping(random, JUMP_REGISTER);
             in_delay_slot = false;
         }
     }
@@ -124,15 +148,6 @@ u32 memoryInstruction(std::mt19937_64& random) {
     return immediate(opcode, DATA_BASE_REGISTER, rt, static_cast<u32>(offset));
 }
 
-// An ALU instruction that leaves the data base register alone.
-u32 aluKeepingBase(std::mt19937_64& random) {
-    u32 code = aluInstruction(random);
-    const bool special = (code >> 26) == 0;
-    const u32 shift = special ? 11 : 16;
-    if (((code >> shift) & 0x1f) == DATA_BASE_REGISTER) code += 1u << shift;
-    return code;
-}
-
 u64 randomValue(std::mt19937_64& random) {
     if (random() % 4 == 0) return EDGE_VALUES[random() % EDGE_VALUES.size()];
     return random();
@@ -161,12 +176,14 @@ u64 cycleTolerance(OpClass op_class, const EeCase& test_case) {
 
 EeCase makeCase(OpClass op_class, std::mt19937_64& random) {
     EeCase test_case{};
+    std::optional<u32> register_target;
     if (op_class == OpClass::Branch) {
-        test_case.program = branchProgram(random);
+        test_case.program = branchProgram(random, register_target);
     } else if (op_class == OpClass::Memory) {
         const u32 length = 1 + static_cast<u32>(random() % MAX_MEMORY_PROGRAM_LENGTH);
         for (u32 index = 0; index < length; ++index)
-            test_case.program.push_back(random() % 3 ? memoryInstruction(random) : aluKeepingBase(random));
+            test_case.program.push_back(random() % 3 ? memoryInstruction(random)
+                                                     : aluKeeping(random, DATA_BASE_REGISTER));
         test_case.data.resize(DATA_BYTES);
         for (u8& byte : test_case.data) byte = static_cast<u8>(random());
     } else {
@@ -178,6 +195,10 @@ EeCase makeCase(OpClass op_class, std::mt19937_64& random) {
     test_case.gprs[0] = {};
     test_case.hi = randomRegister(random);
     test_case.lo = randomRegister(random);
+    if (register_target) {
+        test_case.gprs[JUMP_REGISTER] = {};
+        test_case.gprs[JUMP_REGISTER].lo = PROGRAM_ADDRESS + *register_target * 4;
+    }
     if (op_class == OpClass::Memory) {
         test_case.gprs[DATA_BASE_REGISTER] = {};
         test_case.gprs[DATA_BASE_REGISTER].lo = DATA_ADDRESS + DATA_BYTES / 2;

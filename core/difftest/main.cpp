@@ -21,6 +21,7 @@
 #include "ee_cases.h"
 #include "ee_state.h"
 #include "fmt/format.h"
+#include "iop_harness.h"
 
 #include <charconv>
 #include <cstdlib>
@@ -169,10 +170,14 @@ int main(int argc, char** argv) {
     u64 cases = 0;
     u64 seed = 1;
     const std::optional<OpClass> op_class = argc >= 3 ? parseOpClass(argv[1]) : std::nullopt;
+    const std::optional<IopClass> iop_class = argc >= 3 ? parseIopClass(argv[1]) : std::nullopt;
     s_mutate = argc >= 5 && std::string_view(argv[4]) == "--mutate";
-    if (!op_class || !parseNumber(argv[2], cases) || (argc >= 4 && !parseNumber(argv[3], seed)) ||
+    if ((!op_class && !iop_class) || !parseNumber(argv[2], cases) || (argc >= 4 && !parseNumber(argv[3], seed)) ||
         (argc >= 5 && !s_mutate)) {
-        fmt::print(stderr, "Usage: {} <alu|shift|branch|memory> <cases> [seed] [--mutate]\n", argv[0]);
+        fmt::print(stderr,
+                   "Usage: {} <alu|shift|branch|memory|iop-alu|iop-shift|iop-branch|iop-memory> <cases> [seed] "
+                   "[--mutate]\n",
+                   argv[0]);
         return 2;
     }
     // The core's warnings and errors go to the terminal, so a failure in CI says why.
@@ -181,7 +186,8 @@ int main(int argc, char** argv) {
         fmt::print(stderr, "Could not allocate the emulated memory.\n");
         return 1;
     }
-    const int exit_code = runCases(argv[1], *op_class, cases, seed);
+    const int exit_code =
+        op_class ? runCases(argv[1], *op_class, cases, seed) : runIopCases(argv[1], *iop_class, cases, seed, s_mutate);
     // The memory map is a static whose destructor asserts that nothing is still mapped, and by then the assertion
     // handler's own statics are gone; release it while the process is still whole.
     SysMemory::Release();

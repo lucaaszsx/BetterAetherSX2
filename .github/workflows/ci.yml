@@ -106,7 +106,7 @@ jobs:
             -   name: Run 100k cases per class
                 run: |
                     tester=$(find build/difftest -name bax_difftest -type f -executable)
-                    for class in alu shift branch memory; do
+                    for class in alu shift branch memory iop-alu iop-shift iop-branch iop-memory; do
                         LD_LIBRARY_PATH="$DEPS_PREFIX/lib" "$tester" "$class" 100000 1
                     done
             # A deliberately wrong candidate must be reported, or the comparison is not checking anything.
@@ -114,9 +114,11 @@ jobs:
                 run: |
                     tester=$(find build/difftest -name bax_difftest -type f -executable)
                     # Exit code 1 means a reported divergence; a crash would exit otherwise and prove nothing.
-                    status=0
-                    LD_LIBRARY_PATH="$DEPS_PREFIX/lib" "$tester" alu 1000 1 --mutate || status=$?
-                    test "$status" -eq 1
+                    for class in alu iop-alu; do
+                        status=0
+                        LD_LIBRARY_PATH="$DEPS_PREFIX/lib" "$tester" "$class" 1000 1 --mutate || status=$?
+                        test "$status" -eq 1
+                    done
 
     android:
         name: Android app (native core, lint, tests, debug APK)

@@ -12,6 +12,8 @@ endif()
 add_executable(bax_difftest
     ee_cases.cpp
     ee_state.cpp
+    iop_cases.cpp
+    iop_harness.cpp
     main.cpp
 )
 

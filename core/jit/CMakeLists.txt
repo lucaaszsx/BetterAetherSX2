@@ -7,6 +7,7 @@ add_library(bax_jit OBJECT
     ee/ee_branch.cpp
     ee/ee_memory.cpp
     ee/ee_rec.cpp
+    iop/iop_alu.cpp
     iop/iop_block.cpp
     iop/iop_rec.cpp
 )

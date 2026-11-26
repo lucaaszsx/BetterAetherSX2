@@ -11,7 +11,9 @@
 #include "CDVD/CDVDcommon.h"
 #include "DebugTools/Debug.h"
 #include "Memory.h"
+#include "R3000A.h"
 #include "R5900.h"
+#include "VUmicro.h"
 #include "ee/ee_rec.h"
 #include "ee_cases.h"
 #include "ee_state.h"
@@ -26,9 +28,6 @@ namespace {
 
 using namespace bax::difftest;
 
-// Programs run from the start of EE RAM's user area; the case's instructions are followed by nothing the engines
-// reach, because they stop at the end address.
-constexpr u32 PROGRAM_ADDRESS = 0x00100000;
 // Far more steps than any program in a case, so a runaway engine fails instead of hanging.
 constexpr u32 MAX_STEPS = 1024;
 
@@ -68,6 +67,11 @@ bool initializeCore() {
     SysMemory::Reset();
     // cpuReset resets the CDVD drive too, which reads the disc through the current source; there must be one.
     CDVDsys_ChangeSource(CDVD_SourceType::NoDisc);
+    // As VMManager selects them for an interpreter run; branches run event tests, which reach the IOP and the VUs.
+    Cpu = &intCpu;
+    psxCpu = &psxInt;
+    CpuVU0 = &CpuIntVU0;
+    CpuVU1 = &CpuIntVU1;
     cpuReset();
     recCpu.Reserve();
     return true;
@@ -120,7 +124,8 @@ int runCases(const char* class_name, OpClass op_class, u64 cases, u64 seed) {
         std::optional<EeState> actual = run(CANDIDATE, start, end_pc);
         if (s_mutate && actual) actual->cpu.GPR.r[1].UD[0] ^= 1;
         const std::vector<std::string> diffs =
-            expected && actual ? diffEeState(*expected, *actual) : std::vector<std::string>{"an engine ran away"};
+            expected && actual ? diffEeState(*expected, *actual, cycleTolerance(op_class, test_case))
+                               : std::vector<std::string>{"an engine ran away"};
         if (diffs.empty()) continue;
 
         fmt::print("{} diverged from {} in case {} (seed {}):\n{}", CANDIDATE.name, ORACLE.name, index, seed,
@@ -141,7 +146,7 @@ int main(int argc, char** argv) {
     s_mutate = argc >= 5 && std::string_view(argv[4]) == "--mutate";
     if (!op_class || !parseNumber(argv[2], cases) || (argc >= 4 && !parseNumber(argv[3], seed)) ||
         (argc >= 5 && !s_mutate)) {
-        fmt::print(stderr, "Usage: {} <alu|shift> <cases> [seed] [--mutate]\n", argv[0]);
+        fmt::print(stderr, "Usage: {} <alu|shift|branch> <cases> [seed] [--mutate]\n", argv[0]);
         return 2;
     }
     if (!initializeCore()) {

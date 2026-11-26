@@ -17,7 +17,8 @@ struct EeState {
 EeState captureEeState();
 void restoreEeState(const EeState& state);
 
-// One line per field that differs, naming the field and both values. Empty when the states match.
-std::vector<std::string> diffEeState(const EeState& expected, const EeState& actual);
+// One line per field that differs, naming the field and both values. Empty when the states match. cpuRegs.cycle may
+// differ by up to cycle_tolerance.
+std::vector<std::string> diffEeState(const EeState& expected, const EeState& actual, u64 cycle_tolerance);
 
 } // namespace bax::difftest

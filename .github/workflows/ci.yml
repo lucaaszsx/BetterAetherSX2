@@ -109,6 +109,11 @@ jobs:
                     for class in alu shift; do
                         LD_LIBRARY_PATH="$DEPS_PREFIX/lib" "$tester" "$class" 100000 1
                     done
+            # A deliberately wrong candidate must be reported, or the comparison is not checking anything.
+            -   name: Check that a divergence is caught
+                run: |
+                    tester=$(find build/difftest -name bax_difftest -type f -executable)
+                    ! LD_LIBRARY_PATH="$DEPS_PREFIX/lib" "$tester" alu 1000 1 --mutate
 
     android:
         name: Android app (native core, lint, tests, debug APK)

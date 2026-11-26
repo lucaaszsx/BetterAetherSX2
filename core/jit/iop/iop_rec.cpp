@@ -257,3 +257,9 @@ const CodeBuffer* codeBuffer() {
 }
 
 } // namespace bax::jit::iop
+
+// VMManager selects this recompiler only when its code memory exists and the user turned it on. It stays off by
+// default until it is proven on devices.
+bool BaxIOPRecIsReady() {
+    return s_code.has_value() && Host::GetBaseBoolSettingValue("BetterAetherSX2", "IOPRecompiler", false);
+}

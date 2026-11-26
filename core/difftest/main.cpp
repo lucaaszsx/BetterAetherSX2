@@ -11,7 +11,9 @@
 #include "CDVD/CDVDcommon.h"
 #include "DebugTools/Debug.h"
 #include "Memory.h"
+#include "R3000A.h"
 #include "R5900.h"
+#include "VUmicro.h"
 #include "ee/ee_rec.h"
 #include "ee_cases.h"
 #include "ee_state.h"
@@ -68,6 +70,12 @@ bool initializeCore() {
     SysMemory::Reset();
     // cpuReset resets the CDVD drive too, which reads the disc through the current source; there must be one.
     CDVDsys_ChangeSource(CDVD_SourceType::NoDisc);
+    // As VMManager selects them for an interpreter run. vtlb's page fault handler calls Cpu->Clear when a write hits a
+    // page the recompiler protected, and branches run event tests that reach the IOP and the VUs.
+    Cpu = &intCpu;
+    psxCpu = &psxInt;
+    CpuVU0 = &CpuIntVU0;
+    CpuVU1 = &CpuIntVU1;
     cpuReset();
     recCpu.Reserve();
     return true;

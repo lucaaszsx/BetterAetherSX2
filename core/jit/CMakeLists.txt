@@ -1,6 +1,7 @@
 # Our AArch64 EE and IOP recompilers. They work on PCSX2's CPU state, so they build only inside the PCSX2 build for
 # ARM64, added by the Android app's native library and by the Linux differential tester.
 add_library(bax_jit OBJECT
+    ee/ee_alu.cpp
     ee/ee_block.cpp
     ee/ee_branch.cpp
     ee/ee_memory.cpp
